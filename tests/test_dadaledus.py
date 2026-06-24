@@ -11,7 +11,7 @@ import tempfile
 
 os.environ["DADALEDUS_DIR"] = tempfile.mkdtemp(prefix="ddl_tests_")
 
-from dadaledus import ledger, pricing, desk, nemotron, stripe_io  # noqa: E402
+from dadaledus import ledger, pricing, desk, nemotron, stripe_io, hooks  # noqa: E402
 
 PASS, FAIL = 0, 0
 
@@ -295,6 +295,62 @@ def test_frontmatter_robust_and_no_dup_id():
     check("price stays an int", isinstance(o["price_cents"], int))
     check("spec with colon/hash/quotes survives", "colon" in o["spec"] and "hash" in o["spec"])
     check("--- line inside spec preserved", "--- line in it" in o["spec"])
+
+
+# ── regression: crash/retry and rollback paths (reviewer-found bugs) ──
+def test_fulfill_retry_no_double_cogs():
+    wipe()
+    r = desk.intake("job")
+    desk.collect(r["order"])
+    boom = nemotron.fulfill
+    nemotron.fulfill = lambda spec: (_ for _ in ()).throw(RuntimeError("model down"))
+    try:
+        try:
+            desk.fulfill(r["order"], approve_via=approve)
+        except RuntimeError:
+            pass
+        mid = [p for p in ledger.postings(r["order"]) if p["account"].startswith("cogs")]
+        check("crash leaves cogs booked once", len(mid) == 1)
+        check("crashed order stuck in fulfilling", ledger.read_order(r["order"])["state"] == "fulfilling")
+    finally:
+        nemotron.fulfill = boom
+    f = desk.fulfill(r["order"], approve_via=approve)  # retry
+    cogs = [p for p in ledger.postings(r["order"]) if p["account"].startswith("cogs")]
+    check("retry does NOT double-book cogs", len(cogs) == 1)
+    check("retry delivers", f.get("approved") and ledger.read_order(r["order"])["state"] == "delivered")
+    check("profit correct after retry", f["profit_cents"] == r["price_cents"] - r["est_cost_cents"])
+
+
+def test_collect_no_double_revenue_on_replay():
+    wipe()
+    r = desk.intake("job")
+    # simulate a prior collect that booked revenue but never advanced state
+    ledger.post("revenue", r["price_cents"], order=r["order"], ref="stripe_checkout")
+    desk.collect(r["order"])  # must not post a second revenue line
+    rev = [p for p in ledger.postings(r["order"]) if p["account"] == "revenue"]
+    check("revenue booked exactly once on replay", len(rev) == 1)
+    check("state advanced to funded", ledger.read_order(r["order"])["state"] == "funded")
+
+
+def test_fulfill_missing_plan_errors():
+    wipe()
+    r = desk.intake("job")
+    desk.collect(r["order"])
+    ledger._plan_path(r["order"]).unlink()  # corrupt/lost sidecar
+    f = desk.fulfill(r["order"], approve_via=approve)
+    check("missing plan refuses to fulfill (no re-estimate)", "error" in f)
+
+
+def test_rollback_survives_session_end():
+    wipe()
+    _funded(1)  # gives a fat margin + 100% conversion so evolve raises
+    before = pricing.config()["markup"]
+    e = pricing.evolve()
+    check("evolve changed markup", e["changed"] and pricing.config()["markup"] != before)
+    hooks.on_session_end(session_id="s1")  # writes a session-end snapshot
+    pricing.rollback()
+    check("rollback restores pre-evolve markup despite session-end snapshot",
+          pricing.config()["markup"] == before)
 
 
 def main():

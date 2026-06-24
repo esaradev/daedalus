@@ -59,8 +59,11 @@ def collect(order_id):
         return {"order": order_id, "state": "lost", "paid": False}
     if not stripe_io.check_paid(order_id, o.get("payment_link_id")):
         return {"order": order_id, "state": "quoted", "paid": False}
-    ledger.post("revenue", o["price_cents"], order=order_id, ref="stripe_checkout",
-                memo=f"paid by {o.get('customer','customer')}")
+    # Idempotent: if a prior collect booked revenue but crashed before advancing
+    # state, just advance the state — don't double-book.
+    if not any(p["account"] == "revenue" for p in ledger.postings(order_id)):
+        ledger.post("revenue", o["price_cents"], order=order_id, ref="stripe_checkout",
+                    memo=f"paid by {o.get('customer','customer')}")
     ledger.set_state(order_id, "funded")
     return {"order": order_id, "state": "funded", "revenue_cents": o["price_cents"]}
 
@@ -84,21 +87,31 @@ def fulfill(order_id, approve_via=stripe_io.request_spend):
     if o.get("state") not in ("funded", "fulfilling"):
         return {"error": f"order {order_id} is '{o.get('state')}', not funded"}
 
-    plan = ledger.read_plan(order_id) or _plan_for(o.get("spec", ""))
+    plan = ledger.read_plan(order_id)
+    if not plan:
+        return {"error": f"order {order_id} has no priced plan; cannot fulfill without "
+                          "the cost basis the quote was built from"}
     vendors = plan["vendors"]
     total = sum(v["cents"] for v in vendors)
 
-    ledger.set_state(order_id, "fulfilling")
-    approval = approve_via(order_id, total, vendors)
-    if not approval.get("approved"):
-        ledger.set_state(order_id, "funded")
-        return {"order": order_id, "approved": False,
-                "reason": approval.get("reason", "denied"),
-                "note": "spend needs a human tap in the Link app; agent cannot self-approve"}
+    # Idempotent on retry: if a prior fulfill already booked the inputs but
+    # crashed before delivery (e.g. the model call failed), the order is left
+    # 'fulfilling' with cogs posted. Don't re-approve or double-book — just
+    # finish delivery. (The realistic crash point is the model call below,
+    # which runs after the cogs loop, so "any cogs" means "all cogs booked".)
+    already_paid = any(p["account"].startswith("cogs") for p in ledger.postings(order_id))
 
-    for v in vendors:
-        ledger.post(f"cogs:{v['name']}", -v["cents"], order=order_id,
-                    ref=approval.get("card", ""), memo=v["name"])
+    ledger.set_state(order_id, "fulfilling")
+    if not already_paid:
+        approval = approve_via(order_id, total, vendors)
+        if not approval.get("approved"):
+            ledger.set_state(order_id, "funded")
+            return {"order": order_id, "approved": False,
+                    "reason": approval.get("reason", "denied"),
+                    "note": "spend needs a human tap in the Link app; agent cannot self-approve"}
+        for v in vendors:
+            ledger.post(f"cogs:{v['name']}", -v["cents"], order=order_id,
+                        ref=approval.get("card", ""), memo=v["name"])
 
     deliverable, lane = nemotron.fulfill(o.get("spec", ""))
     ledger.set_state(order_id, "delivered", deliverable_route=lane)

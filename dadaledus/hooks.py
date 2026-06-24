@@ -24,5 +24,5 @@ def on_session_start(session_id="", platform="", **kwargs):
 
 def on_session_end(session_id="", platform="", completed=False, **kwargs):
     # snapshot current pricing so the book has a marker per session
-    pricing._snapshot(pricing.config(), f"session end {session_id}")
+    pricing._snapshot(pricing.config(), f"session end {session_id}", kind="session_end")
     return None

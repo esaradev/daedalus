@@ -68,8 +68,9 @@ def conversion(window):
     return paid / len(decided), len(decided)
 
 
-def _snapshot(cfg, reason):
-    rec = {"ts": datetime.now(timezone.utc).isoformat(), "config": cfg, "reason": reason}
+def _snapshot(cfg, reason, kind="evolve"):
+    rec = {"ts": datetime.now(timezone.utc).isoformat(), "kind": kind,
+           "config": cfg, "reason": reason}
     with SNAPSHOTS.open("a") as f:
         f.write(json.dumps(rec) + "\n")
     return rec
@@ -127,9 +128,12 @@ def rollback():
         return {"error": "no snapshots to roll back to"}
     last = None
     for line in SNAPSHOTS.read_text().splitlines():
-        if line.strip():
-            last = json.loads(line)
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("kind", "evolve") == "evolve":  # ignore session-end markers
+            last = rec
     if not last:
-        return {"error": "no snapshots to roll back to"}
+        return {"error": "no pricing changes to roll back"}
     _save(last["config"])
     return {"restored": True, "markup": last["config"]["markup"], "from": last["ts"]}
