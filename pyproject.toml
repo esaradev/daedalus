@@ -1,0 +1,18 @@
+[project]
+name = "esaradev-dadaledus"
+version = "0.1.0"
+description = "Financial control plane for Hermes agents: ledger, Stripe earn + approval-gated spend, self-evolving pricing."
+authors = [{ name = "esaradev" }]
+requires-python = ">=3.9"
+dependencies = []
+license = { text = "MIT" }
+
+[project.scripts]
+dadaledus = "dadaledus.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dadaledus"]
