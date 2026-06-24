@@ -72,9 +72,12 @@ export NEMOTRON_API_KEY=...
 
 ```bash
 pip install -e .
-dadaledus demo "competitive analysis of the EV charging market"
-dadaledus pnl
+dadaledus showcase    # the full story in one run: one order end to end,
+                      # then the agent discovering its own price
 ```
+
+Other commands: `dadaledus demo "<spec>"` (one order), `dadaledus discover`
+(the pricing loop), `dadaledus pnl` / `dadaledus orders` (read the book).
 
 Sandbox mode runs the exact same control flow with no money moving and is
 clearly labelled at every step. It never claims a real charge happened. Set the
