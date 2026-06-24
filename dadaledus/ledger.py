@@ -2,11 +2,13 @@
 
 Money is integer cents. Postings are never mutated. P&L is a fold over the
 postings file. Orders are one markdown file each so a human (or a judge) can
-read the books by scrolling a folder.
+read the books by scrolling a folder; structured fulfillment plans live in a
+sidecar JSON so the order file stays readable.
 
   ~/fabric/dadaledus/
-  ├── ledger.jsonl          one immutable posting per line
-  └── orders/<id>.md        one order, YAML frontmatter + spec
+  ├── ledger.jsonl              one immutable posting per line
+  └── orders/<id>.md            one order, YAML frontmatter + spec
+      orders/<id>.plan.json     the priced fulfillment plan (cost + vendors)
 
 A posting is a signed movement against an account:
   revenue        money the agent earned   (+)
@@ -27,7 +29,8 @@ STORE = Path(
 LEDGER = STORE / "ledger.jsonl"
 ORDERS = STORE / "orders"
 
-ORDER_STATES = ("quoted", "funded", "fulfilling", "delivered")
+ORDER_STATES = ("quoted", "funded", "fulfilling", "delivered", "lost")
+RESERVED_FIELDS = ("id", "spec")
 
 
 def _now():
@@ -84,13 +87,44 @@ def _order_path(order_id):
     return ORDERS / f"{order_id}.md"
 
 
+def _plan_path(order_id):
+    return ORDERS / f"{order_id}.plan.json"
+
+
+def _fmt(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    return json.dumps(str(v))  # quoted + escaped: safe for colons, hashes, quotes
+
+
+def _coerce(v):
+    v = v.strip()
+    if v == "":
+        return ""
+    if v[0] == '"':
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v.strip('"')
+    if v in ("true", "false"):
+        return v == "true"
+    if v.lstrip("-").isdigit():
+        return int(v)
+    return v
+
+
 def write_order(order_id, fields, spec=""):
-    """Create or overwrite an order's markdown file. fields -> YAML frontmatter."""
+    """Create or overwrite an order's markdown file. Reversible frontmatter."""
     _ensure()
     lines = ["---", f"id: {order_id}"]
-    for k, v in fields.items():
-        lines.append(f"{k}: {json.dumps(v) if isinstance(v, str) and (':' in v or '#' in v) else v}")
-    lines += ["---", "", spec or fields.get("spec", ""), ""]
+    for k, val in fields.items():
+        if k in RESERVED_FIELDS:
+            continue
+        lines.append(f"{k}: {_fmt(val)}")
+    body = spec if spec else fields.get("spec", "")
+    lines += ["---", "", body, ""]
     _order_path(order_id).write_text("\n".join(lines))
 
 
@@ -101,35 +135,34 @@ def read_order(order_id):
     text = path.read_text()
     fields = {}
     spec_lines = []
-    in_front = False
-    done_front = False
+    seen_front = 0
     for line in text.splitlines():
-        if line.strip() == "---":
-            if not in_front and not done_front:
-                in_front = True
-            elif in_front:
-                in_front = False
-                done_front = True
+        if line.strip() == "---" and seen_front < 2:
+            seen_front += 1
             continue
-        if in_front:
+        if seen_front == 1:
             if ":" in line:
                 k, _, v = line.partition(":")
-                fields[k.strip()] = _coerce(v.strip())
-        elif done_front:
+                fields[k.strip()] = _coerce(v)
+        elif seen_front >= 2:
             spec_lines.append(line)
     fields["spec"] = "\n".join(spec_lines).strip()
     return fields
 
 
-def _coerce(v):
-    if v.startswith('"') and v.endswith('"'):
-        return v[1:-1]
-    if v.isdigit() or (v.startswith("-") and v[1:].isdigit()):
-        return int(v)
-    return v
+def write_plan(order_id, plan):
+    _ensure()
+    _plan_path(order_id).write_text(json.dumps(plan, indent=2))
+
+
+def read_plan(order_id):
+    p = _plan_path(order_id)
+    return json.loads(p.read_text()) if p.exists() else None
 
 
 def set_state(order_id, state, **extra):
+    if state not in ORDER_STATES:
+        raise ValueError(f"unknown order state '{state}'")
     o = read_order(order_id) or {"id": order_id}
     o["state"] = state
     o.update(extra)
@@ -138,14 +171,16 @@ def set_state(order_id, state, **extra):
     return o
 
 
-def open_orders():
+def all_orders():
     _ensure()
-    out = []
-    for p in sorted(ORDERS.glob("*.md")):
-        o = read_order(p.stem)
-        if o and o.get("state") != "delivered":
-            out.append(o)
+    out = [read_order(p.stem) for p in ORDERS.glob("*.md")]
+    out = [o for o in out if o]
+    out.sort(key=lambda o: (o.get("created", ""), o.get("id", "")))
     return out
+
+
+def open_orders():
+    return [o for o in all_orders() if o.get("state") not in ("delivered", "lost")]
 
 
 # ── P&L: a fold over the postings ─────────────────────────────────────
@@ -167,7 +202,7 @@ def pnl(order=None):
         "revenue_cents": revenue,
         "spend_cents": spend,
         "profit_cents": profit,
-        "margin_pct": round(100 * profit / revenue, 1) if revenue else 0.0,
+        "margin_pct": round(100 * profit / revenue, 1) if revenue > 0 else 0.0,
         "by_vendor": by_vendor,
     }
 

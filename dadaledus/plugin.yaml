@@ -5,6 +5,7 @@ author: esaradev
 provides_tools:
   - treasury_intake
   - treasury_collect
+  - treasury_abandon
   - treasury_fulfill
   - treasury_pnl
   - treasury_open_orders

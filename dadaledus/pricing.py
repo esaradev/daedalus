@@ -1,9 +1,17 @@
 """Pricing and bounded self-evolution.
 
 The agent prices a job as cost-to-fulfill times a markup. After a window of
-orders it reads its own P&L and adjusts the markup, inside hard bounds it
-cannot exceed in one step and cannot cross at all. Every change is snapshotted
-so it can roll back. This is the sega `evolve` loop pointed at the ledger.
+orders it reads two real signals off its own book and moves the markup inside
+hard bounds:
+
+  margin     — are the orders we win profitable?     (from the ledger)
+  conversion — are customers actually paying at this  (funded vs lost orders)
+               price, or walking away?
+
+Raise only while customers keep buying. When conversion falls, you have found
+the demand ceiling: cut back. That is price discovery, not a ratchet to a cap.
+Every change is snapshotted so it can be rolled back. This is the sega `evolve`
+loop pointed at the ledger.
 """
 
 import json
@@ -16,10 +24,15 @@ SNAPSHOTS = ledger.STORE / "pricing_snapshots.jsonl"
 
 DEFAULTS = {
     "markup": 4.0,            # price = cost_to_fulfill * markup
-    "floor_markup": 1.3,      # never price below this (would lose money on fees)
-    "ceiling_markup": 12.0,   # never gouge past this
+    "floor_markup": 1.3,      # never price below this (fees would eat it)
+    "ceiling_markup": 20.0,   # hard safety stop, not the normal limit
     "max_step_pct": 25.0,     # most the markup can move in one evolve cycle
     "min_price_cents": 500,   # never quote below $5
+    "window": 10,             # how many recent decided orders to read
+    "raise_above": 0.8,       # conversion at/above this -> room to raise
+    "cut_below": 0.5,         # conversion below this -> priced too high
+    "fat_margin": 70.0,       # margin at/above this is "fat"
+    "thin_margin": 30.0,      # margin below this is "thin"
 }
 
 
@@ -40,6 +53,21 @@ def quote_price(cost_to_fulfill_cents):
     return max(price, cfg["min_price_cents"])
 
 
+def conversion(window):
+    """Share of recently *decided* orders that the customer paid for.
+
+    Decided = funded/fulfilling/delivered (paid) or lost (declined). Orders
+    still 'quoted' have not decided yet and do not count. Returns (rate, n).
+    """
+    decided = [o for o in ledger.all_orders()
+               if o.get("state") in ("funded", "fulfilling", "delivered", "lost")]
+    decided = decided[-window:]
+    if not decided:
+        return None, 0
+    paid = sum(1 for o in decided if o.get("state") != "lost")
+    return paid / len(decided), len(decided)
+
+
 def _snapshot(cfg, reason):
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "config": cfg, "reason": reason}
     with SNAPSHOTS.open("a") as f:
@@ -47,43 +75,50 @@ def _snapshot(cfg, reason):
     return rec
 
 
-def evolve():
-    """Read the P&L, propose a bounded markup change, apply it, snapshot.
-
-    Healthy fat margin and we never undercut -> raise. Thin or negative -> cut.
-    Returns the decision so the agent can explain it from its own numbers.
-    """
-    cfg = config()
-    p = ledger.pnl()
-    old = cfg["markup"]
-    margin = p["margin_pct"]
-
-    if p["orders"] < 1 or p["revenue_cents"] <= 0:
-        return {"changed": False, "reason": "no settled revenue yet", "markup": old}
-
-    if margin >= 70:
-        target = old * 1.15
-        why = f"margin {margin}% is fat across {p['orders']} order(s); demand holds, raise price"
-    elif margin < 30:
-        target = old * 0.9
-        why = f"margin {margin}% is thin; cut markup to stay competitive"
-    else:
-        return {"changed": False, "reason": f"margin {margin}% is healthy, hold", "markup": old}
-
+def _clamp(old, target, cfg):
     step_cap = old * (1 + cfg["max_step_pct"] / 100)
     step_floor = old * (1 - cfg["max_step_pct"] / 100)
     target = max(step_floor, min(step_cap, target))
     target = max(cfg["floor_markup"], min(cfg["ceiling_markup"], target))
-    target = round(target, 2)
+    return round(target, 2)
 
+
+def evolve():
+    """Read margin and conversion, move the markup within bounds, snapshot."""
+    cfg = config()
+    p = ledger.pnl()
+    old = cfg["markup"]
+    margin = p["margin_pct"]
+    conv, n = conversion(cfg["window"])
+
+    if p["orders"] < 1 and n == 0:
+        return {"changed": False, "reason": "no order history yet", "markup": old, "conversion": conv}
+
+    # conversion is the dominant signal: if customers are walking, cut regardless of margin.
+    if conv is not None and conv < cfg["cut_below"]:
+        target = old * 0.85
+        why = f"conversion {conv:.0%} over {n} orders is low; price is above the market, cut"
+    elif margin >= cfg["fat_margin"] and (conv is None or conv >= cfg["raise_above"]):
+        target = old * 1.15
+        why = (f"margin {margin}% fat and conversion {('n/a' if conv is None else format(conv, '.0%'))}"
+               f" holding; customers still buy, raise")
+    elif margin < cfg["thin_margin"]:
+        target = old * 0.9
+        why = f"margin {margin}% thin; cut markup"
+    else:
+        return {"changed": False,
+                "reason": f"margin {margin}%, conversion {('n/a' if conv is None else format(conv, '.0%'))}: hold",
+                "markup": old, "conversion": conv}
+
+    target = _clamp(old, target, cfg)
     if target == old:
-        return {"changed": False, "reason": "already at a bound", "markup": old}
+        return {"changed": False, "reason": "already at a bound", "markup": old, "conversion": conv}
 
     _snapshot(cfg, f"before evolve: {why}")
     cfg["markup"] = target
     _save(cfg)
     return {"changed": True, "old_markup": old, "markup": target, "reason": why,
-            "margin_pct": margin, "orders": p["orders"]}
+            "margin_pct": margin, "conversion": conv, "orders": p["orders"]}
 
 
 def rollback():

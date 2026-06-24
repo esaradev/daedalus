@@ -2,30 +2,50 @@
 
 Earning is autonomous. Spending stops at the human approval gate by design.
 Every money movement is booked to the ledger as it happens.
+
+The fulfillment plan (what to buy, and the cost the price was based on) is
+computed once at intake and persisted, so the price the customer paid and the
+spend at fulfill cannot drift apart. The books always reconcile:
+  booked spend == sum(plan vendors) == the cost the quote was built from.
 """
 
 from . import ledger, nemotron, pricing, stripe_io
 
 
+def _plan_for(spec):
+    """Estimate cost once, normalise to vendors, keep cost == sum(vendors)."""
+    obj, lane = nemotron.estimate_cost(spec)
+    if isinstance(obj, dict):
+        vendors = obj.get("vendors") or []
+        cost = obj.get("cost_cents", 0)
+    else:
+        vendors, cost = [], int(obj)
+    vendors = [{"name": str(v["name"]), "cents": int(v["cents"])}
+               for v in vendors if int(v.get("cents", 0)) > 0]
+    if not vendors:
+        vendors = [{"name": "apis", "cents": int(cost)}]
+    return {"cost_cents": sum(v["cents"] for v in vendors), "vendors": vendors, "route": lane}
+
+
 def intake(spec, customer="customer"):
     """Price the work and send a payment link. Fully autonomous."""
-    cost_obj, lane = nemotron.estimate_cost(spec)
-    cost = cost_obj["cost_cents"] if isinstance(cost_obj, dict) else cost_obj
-    vendors = cost_obj.get("vendors", []) if isinstance(cost_obj, dict) else []
-    price = pricing.quote_price(cost)
+    plan = _plan_for(spec)
+    price = pricing.quote_price(plan["cost_cents"])
 
     order_id = ledger.new_id("o")
     link = stripe_io.create_payment_link(order_id, price, spec[:120])
+    ledger.write_plan(order_id, plan)
     ledger.write_order(order_id, {
         "state": "quoted",
+        "created": ledger._now(),
         "customer": customer,
         "price_cents": price,
-        "est_cost_cents": cost,
+        "est_cost_cents": plan["cost_cents"],
         "payment_link_id": link.get("id", ""),
-        "route": lane,
+        "route": plan["route"],
     }, spec=spec)
-    return {"order": order_id, "price_cents": price, "est_cost_cents": cost,
-            "checkout_url": link["url"], "vendors": vendors, "route": lane}
+    return {"order": order_id, "price_cents": price, "est_cost_cents": plan["cost_cents"],
+            "checkout_url": link["url"], "vendors": plan["vendors"], "route": plan["route"]}
 
 
 def collect(order_id):
@@ -35,12 +55,25 @@ def collect(order_id):
         return {"error": f"unknown order {order_id}"}
     if o.get("state") in ("funded", "fulfilling", "delivered"):
         return {"order": order_id, "state": o["state"], "already": True}
+    if o.get("state") == "lost":
+        return {"order": order_id, "state": "lost", "paid": False}
     if not stripe_io.check_paid(order_id, o.get("payment_link_id")):
         return {"order": order_id, "state": "quoted", "paid": False}
     ledger.post("revenue", o["price_cents"], order=order_id, ref="stripe_checkout",
                 memo=f"paid by {o.get('customer','customer')}")
     ledger.set_state(order_id, "funded")
     return {"order": order_id, "state": "funded", "revenue_cents": o["price_cents"]}
+
+
+def abandon(order_id, reason="customer declined"):
+    """Mark a quoted order the customer never paid as lost. Feeds price discovery."""
+    o = ledger.read_order(order_id)
+    if not o:
+        return {"error": f"unknown order {order_id}"}
+    if o.get("state") != "quoted":
+        return {"error": f"order is '{o.get('state')}', only a quoted order can be lost"}
+    ledger.set_state(order_id, "lost", lost_reason=reason)
+    return {"order": order_id, "state": "lost", "reason": reason}
 
 
 def fulfill(order_id, approve_via=stripe_io.request_spend):
@@ -51,12 +84,8 @@ def fulfill(order_id, approve_via=stripe_io.request_spend):
     if o.get("state") not in ("funded", "fulfilling"):
         return {"error": f"order {order_id} is '{o.get('state')}', not funded"}
 
-    spec = o.get("spec", "")
-    cost_obj, _ = nemotron.estimate_cost(spec)
-    vendors = cost_obj.get("vendors") if isinstance(cost_obj, dict) else None
-    if not vendors:
-        c = cost_obj["cost_cents"] if isinstance(cost_obj, dict) else cost_obj
-        vendors = [{"name": "apis", "cents": c}]
+    plan = ledger.read_plan(order_id) or _plan_for(o.get("spec", ""))
+    vendors = plan["vendors"]
     total = sum(v["cents"] for v in vendors)
 
     ledger.set_state(order_id, "fulfilling")
@@ -71,7 +100,7 @@ def fulfill(order_id, approve_via=stripe_io.request_spend):
         ledger.post(f"cogs:{v['name']}", -v["cents"], order=order_id,
                     ref=approval.get("card", ""), memo=v["name"])
 
-    deliverable, lane = nemotron.fulfill(spec)
+    deliverable, lane = nemotron.fulfill(o.get("spec", ""))
     ledger.set_state(order_id, "delivered", deliverable_route=lane)
 
     p = ledger.pnl(order_id)

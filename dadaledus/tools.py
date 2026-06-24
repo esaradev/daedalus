@@ -39,6 +39,16 @@ def treasury_fulfill(args: dict, **kwargs) -> str:
         return _json({"error": str(e)})
 
 
+def treasury_abandon(args: dict, **kwargs) -> str:
+    order = args.get("order", "").strip()
+    if not order:
+        return _json({"error": "need an order id"})
+    try:
+        return _json(desk.abandon(order, args.get("reason", "customer declined").strip()))
+    except Exception as e:
+        return _json({"error": str(e)})
+
+
 def treasury_pnl(args: dict, **kwargs) -> str:
     try:
         p = ledger.pnl(args.get("order") or None)

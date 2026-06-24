@@ -8,6 +8,7 @@ same ~/fabric store.
 Tools:
   treasury_intake       price an order, send a Stripe checkout link    (autonomous)
   treasury_collect      book revenue once the customer pays            (autonomous)
+  treasury_abandon      record an unpaid order as lost (demand signal)
   treasury_fulfill      approval-gated spend, deliver, book the margin
   treasury_pnl          profit-and-loss from the ledger
   treasury_open_orders  orders still in flight
@@ -32,6 +33,8 @@ def register(ctx):
                       schema=schemas.INTAKE, handler=tools.treasury_intake)
     ctx.register_tool(name="treasury_collect", toolset=t,
                       schema=schemas.COLLECT, handler=tools.treasury_collect)
+    ctx.register_tool(name="treasury_abandon", toolset=t,
+                      schema=schemas.ABANDON, handler=tools.treasury_abandon)
     ctx.register_tool(name="treasury_fulfill", toolset=t,
                       schema=schemas.FULFILL, handler=tools.treasury_fulfill)
     ctx.register_tool(name="treasury_pnl", toolset=t,
@@ -46,4 +49,4 @@ def register(ctx):
     ctx.register_hook("on_session_start", hooks.on_session_start)
     ctx.register_hook("on_session_end", hooks.on_session_end)
 
-    logger.info("dadaledus registered (7 tools, 2 hooks)")
+    logger.info("dadaledus registered (8 tools, 2 hooks)")

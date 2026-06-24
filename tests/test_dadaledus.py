@@ -184,6 +184,119 @@ def test_sandbox_is_honest():
     check("sandbox flagged when no stripe key", stripe_io.SANDBOX is True)
 
 
+# ── plan persistence: quote and spend cannot diverge ──────────────────
+def test_plan_persisted_and_reused():
+    wipe()
+    r = desk.intake("market analysis job")
+    plan = ledger.read_plan(r["order"])
+    check("plan persisted at intake", plan is not None)
+    check("plan cost == quoted est cost", plan["cost_cents"] == r["est_cost_cents"])
+    check("cost == sum(vendors)", plan["cost_cents"] == sum(v["cents"] for v in plan["vendors"]))
+    desk.collect(r["order"])
+    f = desk.fulfill(r["order"], approve_via=approve)
+    check("fulfill spends exactly the planned cost", f["spent_cents"] == r["est_cost_cents"])
+    check("profit reconciles: price - planned cost", f["profit_cents"] == r["price_cents"] - r["est_cost_cents"])
+
+
+# ── abandon / lost ────────────────────────────────────────────────────
+def test_abandon_marks_lost():
+    wipe()
+    r = desk.intake("x")
+    a = desk.abandon(r["order"])
+    check("abandon sets lost", a["state"] == "lost" and ledger.read_order(r["order"])["state"] == "lost")
+    check("lost order books no money", ledger.pnl(r["order"])["revenue_cents"] == 0)
+
+
+def test_cannot_abandon_funded():
+    wipe()
+    r = desk.intake("x")
+    desk.collect(r["order"])
+    a = desk.abandon(r["order"])
+    check("cannot abandon a funded order", "error" in a)
+
+
+# ── conversion + demand-aware pricing ─────────────────────────────────
+def _funded(n):
+    for _ in range(n):
+        r = desk.intake("job")
+        desk.collect(r["order"])
+        desk.fulfill(r["order"], approve_via=approve)
+
+
+def _lost(n):
+    for _ in range(n):
+        desk.abandon(desk.intake("job")["order"])
+
+
+def test_conversion_math():
+    wipe()
+    _funded(6)
+    _lost(4)
+    rate, count = pricing.conversion(window=10)
+    check("conversion counts decided orders", count == 10)
+    check("conversion rate correct (6/10)", rate == 0.6)
+
+
+def test_evolve_cuts_when_customers_walk():
+    wipe()
+    _funded(3)
+    _lost(7)  # conversion 0.3 -> below cut threshold
+    before = pricing.config()["markup"]
+    e = pricing.evolve()
+    check("low conversion cuts the markup", e["changed"] and e["markup"] < before)
+
+
+def test_evolve_holds_in_band():
+    wipe()
+    _funded(7)
+    _lost(3)  # conversion 0.7 -> between cut and raise
+    e = pricing.evolve()
+    check("mid-band conversion holds", e["changed"] is False)
+
+
+def test_evolve_raises_when_demand_strong():
+    wipe()
+    _funded(10)  # conversion 1.0, fat margin
+    before = pricing.config()["markup"]
+    e = pricing.evolve()
+    check("strong demand + fat margin raises", e["changed"] and e["markup"] > before)
+
+
+def test_discovery_does_not_pin_ceiling():
+    wipe()
+    wtp = [1900, 1400, 2600, 1700, 1200, 2300, 1600, 2000, 1300, 2800]
+    markups, cuts = [], 0
+    prev = pricing.config()["markup"]
+    for i in range(40):
+        r = desk.intake("market analysis")
+        if r["price_cents"] <= wtp[i % len(wtp)]:
+            desk.collect(r["order"]); desk.fulfill(r["order"], approve_via=approve)
+        else:
+            desk.abandon(r["order"])
+        pricing.evolve()
+        m = pricing.config()["markup"]
+        if m < prev:
+            cuts += 1
+        markups.append(m); prev = m
+    check("markup never pins at the ceiling", max(markups) < pricing.DEFAULTS["ceiling_markup"])
+    check("pricing cut back at least once (real discovery)", cuts >= 1)
+
+
+# ── frontmatter robustness ────────────────────────────────────────────
+def test_frontmatter_robust_and_no_dup_id():
+    wipe()
+    r = desk.intake('spec with: a colon, #hash, "quotes", and a\n--- line in it')
+    ledger.set_state(r["order"], "funded")  # rewrites the file via read->write round-trip
+    raw = ledger._order_path(r["order"]).read_text()
+    id_lines = [ln for ln in raw.splitlines() if ln.startswith("id:")]
+    check("exactly one id line in frontmatter", len(id_lines) == 1)
+    o = ledger.read_order(r["order"])
+    check("state survives round-trip", o["state"] == "funded")
+    check("price stays an int", isinstance(o["price_cents"], int))
+    check("spec with colon/hash/quotes survives", "colon" in o["spec"] and "hash" in o["spec"])
+    check("--- line inside spec preserved", "--- line in it" in o["spec"])
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

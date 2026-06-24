@@ -46,6 +46,23 @@ FULFILL = {
     },
 }
 
+ABANDON = {
+    "name": "treasury_abandon",
+    "description": (
+        "Record that a quoted order was never paid (the customer declined or went "
+        "silent). This is the demand signal pricing uses: too many lost orders means "
+        "the price is above the market. Call when a checkout link goes unpaid."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "order": {"type": "string", "description": "The quoted order id"},
+            "reason": {"type": "string", "description": "Why it was lost (optional)"},
+        },
+        "required": ["order"],
+    },
+}
+
 PNL = {
     "name": "treasury_pnl",
     "description": "Profit-and-loss from the ledger. Omit 'order' for the whole book.",
