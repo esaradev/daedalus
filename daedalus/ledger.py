@@ -1,210 +1,139 @@
-"""The spine. An append-only, double-entry ledger on disk.
+"""Strict double-entry ledger on SQLite.
 
-Money is integer cents. Postings are never mutated. P&L is a fold over the
-postings file. Orders are one markdown file each so a human (or a judge) can
-read the books by scrolling a folder; structured fulfillment plans live in a
-sidecar JSON so the order file stays readable.
+Every transaction is a set of entries whose signed amounts sum to exactly zero.
+Amounts are integer cents. Sign convention: debit positive, credit negative,
+applied uniformly across all accounts, so a balanced transaction sums to 0 and
+the whole book always sums to 0.
 
-  ~/fabric/daedalus/
-  ├── ledger.jsonl              one immutable posting per line
-  └── orders/<id>.md            one order, YAML frontmatter + spec
-      orders/<id>.plan.json     the priced fulfillment plan (cost + vendors)
+  Cash      asset   (debit-normal)   balance = sum of its entries
+  COGS      expense (debit-normal)
+  Revenue   income  (credit-normal)  reported revenue = -balance
+  Equity    equity  (credit-normal)  retained margin
 
-A posting is a signed movement against an account:
-  revenue        money the agent earned   (+)
-  cogs:<vendor>  money the agent spent     (-)
-  fees:stripe    payment fees              (-)
+Earn $18.24:  debit Cash +1824, credit Revenue -1824
+Spend $4.56:  debit COGS  +456, credit Cash    -456
+
+P&L is a fold over the entries. Nothing is ever mutated or deleted.
 """
 
-import json
-import os
-import secrets
-from datetime import datetime, timezone
+import sqlite3
+import time
 from pathlib import Path
 
-STORE = Path(
-    os.environ.get("DAEDALUS_DIR")
-    or (Path(os.environ.get("FABRIC_DIR", Path.home() / "fabric")) / "daedalus")
-)
-LEDGER = STORE / "ledger.jsonl"
-ORDERS = STORE / "orders"
+from . import config
 
-ORDER_STATES = ("quoted", "funded", "fulfilling", "delivered", "lost")
-RESERVED_FIELDS = ("id", "spec")
+INCOME_ACCOUNTS = ("Revenue", "Equity")  # credit-normal: negate to report positive
 
 
-def _now():
-    return datetime.now(timezone.utc).isoformat()
+class Unbalanced(ValueError):
+    pass
 
 
-def _ensure():
-    ORDERS.mkdir(parents=True, exist_ok=True)
-    if not LEDGER.exists():
-        LEDGER.touch()
+class Ledger:
+    def __init__(self, db_path=None):
+        self.path = Path(db_path) if db_path else config.DB_PATH
+        if str(self.path) != ":memory:":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.path))
+        self.conn.row_factory = sqlite3.Row
+        self._init_schema()
 
+    def _init_schema(self):
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS txn (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts      REAL    NOT NULL,
+                kind    TEXT    NOT NULL,
+                ref     TEXT    NOT NULL DEFAULT '',
+                memo    TEXT    NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS entry (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                txn_id   INTEGER NOT NULL REFERENCES txn(id),
+                account  TEXT    NOT NULL,
+                amount   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_entry_account ON entry(account);
+            CREATE INDEX IF NOT EXISTS idx_entry_txn ON entry(txn_id);
+            """
+        )
+        self.conn.commit()
 
-def new_id(prefix):
-    return f"{prefix}_{secrets.token_hex(4)}"
+    # ── posting ───────────────────────────────────────────────────────
+    def post(self, kind, entries, ref="", memo=""):
+        """entries: list of (account, amount_cents). Must sum to zero."""
+        clean = []
+        for a, amt in entries:
+            iamt = int(amt)
+            if amt != iamt:
+                raise ValueError(f"amount {amt!r} for {a} is not whole cents")
+            clean.append((str(a), iamt))
+        entries = clean
+        total = sum(amt for _, amt in entries)
+        if total != 0:
+            raise Unbalanced(
+                f"transaction '{kind}' is unbalanced: entries sum to {total}, must be 0. "
+                f"Every posting needs equal debits and credits."
+            )
+        if not entries:
+            raise Unbalanced(f"transaction '{kind}' has no entries")
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO txn (ts, kind, ref, memo) VALUES (?,?,?,?)",
+                    (time.time(), kind, ref, memo))
+        txn_id = cur.lastrowid
+        cur.executemany("INSERT INTO entry (txn_id, account, amount) VALUES (?,?,?)",
+                        [(txn_id, a, amt) for a, amt in entries])
+        self.conn.commit()
+        return txn_id
 
+    def earn(self, amount_cents, ref="", memo=""):
+        return self.post("earn", [("Cash", amount_cents), ("Revenue", -amount_cents)],
+                         ref=ref, memo=memo)
 
-# ── postings ──────────────────────────────────────────────────────────
+    def spend(self, amount_cents, vendor, ref="", memo=""):
+        if amount_cents <= 0:
+            raise ValueError("spend amount must be positive")
+        return self.post(f"spend:{vendor}",
+                         [("COGS", amount_cents), ("Cash", -amount_cents)],
+                         ref=ref, memo=memo or vendor)
 
-def post(account, amount_cents, order=None, ref="", memo="", status="settled"):
-    """Append one posting. amount_cents is signed: revenue +, costs -."""
-    _ensure()
-    entry = {
-        "id": new_id("p"),
-        "ts": _now(),
-        "order": order,
-        "account": account,
-        "amount": int(amount_cents),
-        "ref": ref,
-        "memo": memo,
-        "status": status,
-    }
-    with LEDGER.open("a") as f:
-        f.write(json.dumps(entry) + "\n")
-    return entry
+    # ── reads ─────────────────────────────────────────────────────────
+    def balance(self, account):
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(amount),0) AS b FROM entry WHERE account=?", (account,)
+        ).fetchone()
+        return row["b"]
 
+    def total_imbalance(self):
+        """Whole-book invariant: every entry summed must be exactly zero."""
+        row = self.conn.execute("SELECT COALESCE(SUM(amount),0) AS b FROM entry").fetchone()
+        return row["b"]
 
-def postings(order=None):
-    _ensure()
-    out = []
-    with LEDGER.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            p = json.loads(line)
-            if order is None or p.get("order") == order:
-                out.append(p)
-    return out
+    def pnl(self):
+        revenue = -self.balance("Revenue")        # credit-normal -> report positive
+        cogs = self.balance("COGS")
+        profit = revenue - cogs
+        return {
+            "revenue_cents": revenue,
+            "cost_cents": cogs,
+            "profit_cents": profit,
+            "cash_cents": self.balance("Cash"),
+            "margin_pct": round(100 * profit / revenue, 1) if revenue > 0 else 0.0,
+        }
 
+    def transactions(self, limit=50):
+        rows = self.conn.execute(
+            """SELECT t.id, t.ts, t.kind, t.ref, t.memo,
+                      COALESCE(SUM(CASE WHEN e.amount>0 THEN e.amount END),0) AS debit
+               FROM txn t JOIN entry e ON e.txn_id=t.id
+               GROUP BY t.id ORDER BY t.id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
-# ── orders ────────────────────────────────────────────────────────────
-
-def _order_path(order_id):
-    return ORDERS / f"{order_id}.md"
-
-
-def _plan_path(order_id):
-    return ORDERS / f"{order_id}.plan.json"
-
-
-def _fmt(v):
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return str(v)
-    return json.dumps(str(v))  # quoted + escaped: safe for colons, hashes, quotes
-
-
-def _coerce(v):
-    v = v.strip()
-    if v == "":
-        return ""
-    if v[0] == '"':
-        try:
-            return json.loads(v)
-        except ValueError:
-            return v.strip('"')
-    if v in ("true", "false"):
-        return v == "true"
-    if v.lstrip("-").isdigit():
-        return int(v)
-    return v
-
-
-def write_order(order_id, fields, spec=""):
-    """Create or overwrite an order's markdown file. Reversible frontmatter."""
-    _ensure()
-    lines = ["---", f"id: {order_id}"]
-    for k, val in fields.items():
-        if k in RESERVED_FIELDS:
-            continue
-        lines.append(f"{k}: {_fmt(val)}")
-    body = spec if spec else fields.get("spec", "")
-    lines += ["---", "", body, ""]
-    _order_path(order_id).write_text("\n".join(lines))
-
-
-def read_order(order_id):
-    path = _order_path(order_id)
-    if not path.exists():
-        return None
-    text = path.read_text()
-    fields = {}
-    spec_lines = []
-    seen_front = 0
-    for line in text.splitlines():
-        if line.strip() == "---" and seen_front < 2:
-            seen_front += 1
-            continue
-        if seen_front == 1:
-            if ":" in line:
-                k, _, v = line.partition(":")
-                fields[k.strip()] = _coerce(v)
-        elif seen_front >= 2:
-            spec_lines.append(line)
-    fields["spec"] = "\n".join(spec_lines).strip()
-    return fields
-
-
-def write_plan(order_id, plan):
-    _ensure()
-    _plan_path(order_id).write_text(json.dumps(plan, indent=2))
-
-
-def read_plan(order_id):
-    p = _plan_path(order_id)
-    return json.loads(p.read_text()) if p.exists() else None
-
-
-def set_state(order_id, state, **extra):
-    if state not in ORDER_STATES:
-        raise ValueError(f"unknown order state '{state}'")
-    o = read_order(order_id) or {"id": order_id}
-    o["state"] = state
-    o.update(extra)
-    spec = o.pop("spec", "")
-    write_order(order_id, o, spec=spec)
-    return o
-
-
-def all_orders():
-    _ensure()
-    out = [read_order(p.stem) for p in ORDERS.glob("*.md")]
-    out = [o for o in out if o]
-    out.sort(key=lambda o: (o.get("created", ""), o.get("id", "")))
-    return out
-
-
-def open_orders():
-    return [o for o in all_orders() if o.get("state") not in ("delivered", "lost")]
-
-
-# ── P&L: a fold over the postings ─────────────────────────────────────
-
-def pnl(order=None):
-    """Roll up postings into a profit-and-loss statement."""
-    ps = postings(order)
-    revenue = sum(p["amount"] for p in ps if p["account"] == "revenue")
-    cogs = sum(p["amount"] for p in ps if p["account"].startswith("cogs"))
-    fees = sum(p["amount"] for p in ps if p["account"].startswith("fees"))
-    spend = cogs + fees  # negative
-    profit = revenue + spend
-    by_vendor = {}
-    for p in ps:
-        if p["amount"] < 0:
-            by_vendor[p["account"]] = by_vendor.get(p["account"], 0) + p["amount"]
-    return {
-        "orders": len({p["order"] for p in ps if p["order"]}),
-        "revenue_cents": revenue,
-        "spend_cents": spend,
-        "profit_cents": profit,
-        "margin_pct": round(100 * profit / revenue, 1) if revenue > 0 else 0.0,
-        "by_vendor": by_vendor,
-    }
+    def close(self):
+        self.conn.close()
 
 
 def dollars(cents):

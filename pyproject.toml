@@ -1,11 +1,19 @@
 [project]
-name = "esaradev-daedalus"
-version = "0.1.0"
-description = "Financial control plane for Hermes agents: ledger, Stripe earn + approval-gated spend, self-evolving pricing."
+name = "daedalus"
+version = "0.2.0"
+description = "Financial control plane for agents: double-entry ledger + spend authorization gate, with a real security-audit workload. NVIDIA Nemotron x Stripe x Nous Hermes."
 authors = [{ name = "esaradev" }]
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.11"
 license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "stripe>=12",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "coverage>=7"]
 
 [project.scripts]
 daedalus = "daedalus.cli:main"
@@ -15,4 +23,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["daedalus"]
+packages = ["daedalus", "daedalus.jobs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

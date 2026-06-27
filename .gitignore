@@ -1,5 +1,12 @@
+.venv/
 __pycache__/
 *.pyc
-.venv/
-fabric/
 *.egg-info/
+.env
+data/
+*.db
+*.db-journal
+.pytest_cache/
+.coverage
+htmlcov/
+fabric/
