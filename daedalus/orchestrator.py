@@ -50,9 +50,13 @@ class Orchestrator:
             result["state"] = "lost"
             return result
 
-        ref = link.get("id") or order_id
-        self.earn.handle_event(self._completed_event(order_id, price, ref))
+        if getattr(self.earn, "enabled", False):
+            collected = self.earn.charge_test(price, f"Security audit: {target_url}", order_id)
+        else:
+            ref = link.get("id") or order_id
+            collected = self.earn.handle_event(self._completed_event(order_id, price, ref))
         result["revenue_cents"] = price
+        result["collect_ref"] = collected.get("ref", "")
         result["state"] = "funded"
 
         vendor, vhost = "openrouter", "openrouter.ai"

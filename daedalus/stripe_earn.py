@@ -37,6 +37,24 @@ class StripeEarn:
             metadata={"order_id": order_id})
         return {"stub": False, "id": link.id, "url": link.url, "amount_cents": amount_cents}
 
+    def charge_test(self, amount_cents, description, order_id=""):
+        """Autonomous collect for the live demo: a real Stripe TEST-MODE charge
+        standing in for the customer paying the link, booked idempotently. The
+        production path is the Payment Link + webhook (handle_event)."""
+        if not self.enabled:
+            ref = "pi_stub_" + secrets.token_hex(4)
+            self.ledger.earn(int(amount_cents), ref=ref, memo=f"stub charge {order_id}")
+            return {"stub": True, "ref": ref, "booked_cents": int(amount_cents)}
+        pi = stripe.PaymentIntent.create(
+            amount=int(amount_cents), currency="usd",
+            payment_method="pm_card_visa", confirm=True, off_session=True,
+            description=description[:200], metadata={"order_id": order_id})
+        ref = pi.id
+        if self.ledger.has_ref(ref):
+            return {"already_booked": True, "ref": ref}
+        self.ledger.earn(int(amount_cents), ref=ref, memo=f"stripe charge {order_id}")
+        return {"booked_cents": int(amount_cents), "ref": ref, "status": pi.status}
+
     def verify_webhook(self, payload, sig_header):
         """Verify the Stripe signature and return the event. Raises on tamper."""
         return stripe.Webhook.construct_event(payload, sig_header, self.webhook_secret)

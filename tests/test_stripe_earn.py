@@ -60,6 +60,29 @@ def test_real_payment_link_calls_sdk(ledger, monkeypatch):
     assert link["stub"] is False and link["url"].startswith("https://checkout.stripe.com")
 
 
+def test_charge_test_stub_books_revenue(ledger):
+    earn = StripeEarn(ledger, api_key="")
+    res = earn.charge_test(500, "audit", order_id="o1")
+    assert res["stub"] is True and res["booked_cents"] == 500
+    assert ledger.pnl()["revenue_cents"] == 500
+
+
+def test_charge_test_real_mocked_and_idempotent(ledger, monkeypatch):
+    import daedalus.stripe_earn as se
+
+    def create(**kw):
+        return type("PI", (), {"id": "pi_real_1", "status": "succeeded"})()
+
+    monkeypatch.setattr(se.stripe, "PaymentIntent", type("X", (), {"create": staticmethod(create)}))
+    earn = StripeEarn(ledger, api_key="sk_test_x")
+    r1 = earn.charge_test(500, "audit", order_id="o1")
+    assert r1["booked_cents"] == 500 and r1["ref"] == "pi_real_1"
+    r2 = earn.charge_test(500, "audit", order_id="o1")  # same PI id -> idempotent
+    # different PI each real call in practice; here we force the same id to prove the guard
+    assert r2.get("already_booked") is True
+    assert ledger.pnl()["revenue_cents"] == 500
+
+
 def test_verify_webhook_delegates(ledger, monkeypatch):
     import daedalus.stripe_earn as se
     called = {}

@@ -95,7 +95,10 @@ def cmd_demo(url):
     if e["changed"]:
         print(f"  markup {e['old_markup']}x -> {e['markup']}x")
     print()
-    print("to run on real money: set STRIPE_SECRET_KEY (test) + OPENROUTER_API_KEY in .env")
+    if config.STRIPE_ENABLED and config.OPENROUTER_API_KEY:
+        print("running live: real Stripe test-mode charges + Nemotron Ultra. test mode, no real money moved.")
+    else:
+        print("to run on real money: set STRIPE_SECRET_KEY (test) + OPENROUTER_API_KEY in .env")
     print()
 
 
