@@ -28,3 +28,4 @@ packages = ["daedalus", "daedalus.jobs"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["live: hits the real network; skipped automatically when offline"]
