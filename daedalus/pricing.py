@@ -33,7 +33,7 @@ class Pricing:
         if self.state_path.exists():
             self.cfg.update(json.loads(self.state_path.read_text()))
         self.cfg.update(overrides)
-        self.repriced = 0
+        self.repriced = self.cfg.get("repriced", 0)
 
     def _save(self):
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,6 +81,7 @@ class Pricing:
         if target == old:
             return {"changed": False, "reason": "already at a bound", "markup": old, "conversion": conversion}
         c["markup"] = target
-        self.repriced += 1
+        c["repriced"] = c.get("repriced", 0) + 1
+        self.repriced = c["repriced"]
         self._save()
         return {"changed": True, "old_markup": old, "markup": target, "reason": why, "conversion": conversion}
