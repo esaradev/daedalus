@@ -1,4 +1,4 @@
-"""dadaledus — the financial control plane for Hermes agents.
+"""daedalus — the financial control plane for Hermes agents.
 
 Daedalus built the apparatus. This is the apparatus that lets an agent run a
 business: a double-entry ledger, Stripe earn + approval-gated spend, and
@@ -49,4 +49,4 @@ def register(ctx):
     ctx.register_hook("on_session_start", hooks.on_session_start)
     ctx.register_hook("on_session_end", hooks.on_session_end)
 
-    logger.info("dadaledus registered (8 tools, 2 hooks)")
+    logger.info("daedalus registered (8 tools, 2 hooks)")

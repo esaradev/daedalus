@@ -5,7 +5,7 @@ postings file. Orders are one markdown file each so a human (or a judge) can
 read the books by scrolling a folder; structured fulfillment plans live in a
 sidecar JSON so the order file stays readable.
 
-  ~/fabric/dadaledus/
+  ~/fabric/daedalus/
   ├── ledger.jsonl              one immutable posting per line
   └── orders/<id>.md            one order, YAML frontmatter + spec
       orders/<id>.plan.json     the priced fulfillment plan (cost + vendors)
@@ -23,8 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STORE = Path(
-    os.environ.get("DADALEDUS_DIR")
-    or (Path(os.environ.get("FABRIC_DIR", Path.home() / "fabric")) / "dadaledus")
+    os.environ.get("DAEDALUS_DIR")
+    or (Path(os.environ.get("FABRIC_DIR", Path.home() / "fabric")) / "daedalus")
 )
 LEDGER = STORE / "ledger.jsonl"
 ORDERS = STORE / "orders"

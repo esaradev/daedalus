@@ -1,4 +1,4 @@
-name: dadaledus
+name: daedalus
 version: 0.1.0
 description: Financial control plane for Hermes agents. A double-entry ledger, Stripe earn plus approval-gated spend, and bounded self-evolving pricing. The agent runs a business and keeps its own books.
 author: esaradev

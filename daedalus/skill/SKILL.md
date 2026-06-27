@@ -1,5 +1,5 @@
 ---
-name: dadaledus
+name: daedalus
 description: Run a service as a business with a real P&L. Use when the agent takes paid work, buys inputs to fulfill it, and needs to stay profitable.
 ---
 

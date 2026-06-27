@@ -1,11 +1,11 @@
-"""dadaledus CLI: inspect the books, or run the loop.
+"""daedalus CLI: inspect the books, or run the loop.
 
-  dadaledus pnl
-  dadaledus orders
-  dadaledus demo "competitive analysis of the EV charging market"
-  dadaledus discover [N]     # simulated market: watch pricing find the demand ceiling
-  dadaledus showcase         # the full story in one run, for recording
-  dadaledus evolve
+  daedalus pnl
+  daedalus orders
+  daedalus demo "competitive analysis of the EV charging market"
+  daedalus discover [N]     # simulated market: watch pricing find the demand ceiling
+  daedalus showcase         # the full story in one run, for recording
+  daedalus evolve
 """
 
 import shutil
@@ -30,7 +30,7 @@ def _print_pnl(order=None):
 
 def _demo(spec):
     mode = "SANDBOX (no Stripe key — no real money moves)" if stripe_io.SANDBOX else "STRIPE TEST MODE"
-    print(f"=== dadaledus demo · {mode} ===\n")
+    print(f"=== daedalus demo · {mode} ===\n")
 
     print(f"1. order in: {spec}")
     r = desk.intake(spec)
@@ -65,7 +65,7 @@ _WTP_CENTS = [1900, 1400, 2600, 1700, 1200, 2300, 1600, 2000, 1300, 2800,
 
 
 def _discover(n):
-    print("=== dadaledus discover · SIMULATED MARKET (no real money) ===")
+    print("=== daedalus discover · SIMULATED MARKET (no real money) ===")
     print("watching the markup find the demand ceiling instead of a hardcoded cap\n")
     print(f"{'#':>3} {'price':>8} {'WTP':>8}  outcome   {'markup':>7} {'conv':>5}")
     spec = "market analysis"
@@ -107,7 +107,7 @@ def _showcase():
     mode = "SANDBOX  (no keys, no real money — plug in your own to go live)" \
         if stripe_io.SANDBOX else "STRIPE TEST MODE"
     print()
-    print("dadaledus  ·  an agent that runs a business and keeps its own books")
+    print("daedalus  ·  an agent that runs a business and keeps its own books")
     print(mode)
 
     # Act 1 — one order, the whole loop, with the approval gate in the open.

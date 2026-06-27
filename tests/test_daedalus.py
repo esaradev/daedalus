@@ -1,4 +1,4 @@
-"""Invariant tests for dadaledus. No pytest needed: python -m tests.test_dadaledus.
+"""Invariant tests for daedalus. No pytest needed: python -m tests.test_daedalus.
 
 Runs in sandbox (no keys), which exercises the real control flow and all the
 money/ledger/pricing logic. The only things it cannot cover are a live Stripe
@@ -9,9 +9,9 @@ import os
 import shutil
 import tempfile
 
-os.environ["DADALEDUS_DIR"] = tempfile.mkdtemp(prefix="ddl_tests_")
+os.environ["DAEDALUS_DIR"] = tempfile.mkdtemp(prefix="ddl_tests_")
 
-from dadaledus import ledger, pricing, desk, nemotron, stripe_io, hooks  # noqa: E402
+from daedalus import ledger, pricing, desk, nemotron, stripe_io, hooks  # noqa: E402
 
 PASS, FAIL = 0, 0
 

@@ -1,10 +1,10 @@
-# dadaledus
+# daedalus
 
 > The financial control plane for Hermes agents.
 >
 > An agent that spends money is flying blind. This gives it a P&L.
 
-Daedalus built the apparatus that made flight possible. `dadaledus` is the
+Daedalus built the apparatus that made flight possible. `daedalus` is the
 apparatus that lets a Hermes agent run a business: a double-entry ledger, Stripe
 on both sides of the rail, and pricing that tunes itself from the books. Sibling
 to the Icarus memory plugins, and it shares the same `~/fabric/` store.
@@ -44,19 +44,19 @@ the human is interrupted once per order, not once per API call.
 ## Install (as a Hermes plugin)
 
 ```bash
-git clone https://github.com/esaradev/dadaledus.git
-mkdir -p ~/.hermes/plugins/dadaledus
-cp -r dadaledus/dadaledus/* ~/.hermes/plugins/dadaledus/
-cp -r dadaledus/dadaledus/skill ~/.hermes/skills/dadaledus
+git clone https://github.com/esaradev/daedalus.git
+mkdir -p ~/.hermes/plugins/daedalus
+cp -r daedalus/daedalus/* ~/.hermes/plugins/daedalus/
+cp -r daedalus/daedalus/skill ~/.hermes/skills/daedalus
 ```
 
-Start Hermes, `/plugins` should show `dadaledus (7 tools, 2 hooks)`.
+Start Hermes, `/plugins` should show `daedalus (7 tools, 2 hooks)`.
 
 ## Configure
 
 ```bash
-# where the books live (defaults to ~/fabric/dadaledus)
-export DADALEDUS_DIR=~/fabric/dadaledus
+# where the books live (defaults to ~/fabric/daedalus)
+export DAEDALUS_DIR=~/fabric/daedalus
 
 # Stripe — test mode is fine. Without it, runs in a labelled SANDBOX.
 export STRIPE_API_KEY=sk_test_...
@@ -72,12 +72,12 @@ export NEMOTRON_API_KEY=...
 
 ```bash
 pip install -e .
-dadaledus showcase    # the full story in one run: one order end to end,
+daedalus showcase    # the full story in one run: one order end to end,
                       # then the agent discovering its own price
 ```
 
-Other commands: `dadaledus demo "<spec>"` (one order), `dadaledus discover`
-(the pricing loop), `dadaledus pnl` / `dadaledus orders` (read the book).
+Other commands: `daedalus demo "<spec>"` (one order), `daedalus discover`
+(the pricing loop), `daedalus pnl` / `daedalus orders` (read the book).
 
 Sandbox mode runs the exact same control flow with no money moving and is
 clearly labelled at every step. It never claims a real charge happened. Set the
@@ -90,7 +90,7 @@ mutated; P&L is a fold over the file. One markdown file per order, so you can
 read the books by scrolling a folder.
 
 ```
-~/fabric/dadaledus/
+~/fabric/daedalus/
 ├── ledger.jsonl          one immutable posting per line
 ├── orders/<id>.md        one order each, YAML frontmatter + spec
 ├── pricing.json          current markup and bounds
