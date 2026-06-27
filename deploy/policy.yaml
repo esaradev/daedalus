@@ -1,0 +1,17 @@
+# NemoClaw network policy for daedalus
+# default-deny: only the endpoints listed below are reachable.
+preset:
+  name: daedalus
+  network:
+    - endpoint:
+        host: api.stripe.com
+        port: 443
+        protocol: https
+    - endpoint:
+        host: example.com
+        port: 443
+        protocol: https
+    - endpoint:
+        host: openrouter.ai
+        port: 443
+        protocol: https
