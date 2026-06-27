@@ -105,6 +105,13 @@ class Ledger:
         ).fetchone()
         return row["b"]
 
+    def has_ref(self, ref):
+        """Has any transaction already been booked against this external ref?"""
+        if not ref:
+            return False
+        row = self.conn.execute("SELECT 1 FROM txn WHERE ref=? LIMIT 1", (ref,)).fetchone()
+        return row is not None
+
     def total_imbalance(self):
         """Whole-book invariant: every entry summed must be exactly zero."""
         row = self.conn.execute("SELECT COALESCE(SUM(amount),0) AS b FROM entry").fetchone()
