@@ -46,6 +46,15 @@ def test_webhook_missing_amount(ledger):
     assert "error" in earn.handle_event(ev)
 
 
+def test_webhook_missing_ref_refused(ledger):
+    earn = StripeEarn(ledger, api_key="")
+    ev = _event()
+    ev["data"]["object"]["payment_intent"] = ""
+    ev["data"]["object"]["id"] = ""
+    res = earn.handle_event(ev)
+    assert "error" in res and ledger.pnl()["revenue_cents"] == 0
+
+
 def test_real_payment_link_calls_sdk(ledger, monkeypatch):
     import daedalus.stripe_earn as se
 

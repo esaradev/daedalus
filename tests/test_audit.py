@@ -91,6 +91,96 @@ def test_normalize_adds_scheme():
     assert audit._normalize("example.com").startswith("https://")
 
 
+def test_ipv6_malformed_does_not_crash():
+    report = audit.run_audit("https://[::1", timeout=2.0)  # malformed IPv6 literal
+    assert audit.validate_report(report)
+    assert report["checks"][0]["name"] == "reachability"
+    assert report["checks"][0]["status"] == "fail"
+
+
+def test_evaluate_edge_branches():
+    n = _by_name(audit.evaluate(dict(STRONG, tls={"valid": True, "days_to_expiry": None, "error": None})))
+    assert n["tls_certificate"]["status"] == "pass"
+    n = _by_name(audit.evaluate(dict(STRONG, tls={"valid": True, "days_to_expiry": -1, "error": None})))
+    assert n["tls_certificate"]["status"] == "fail"
+    n = _by_name(audit.evaluate(dict(STRONG, redirect_http_to_https=None, latency_ms=None)))
+    assert n["https_enforced"]["status"] == "warn" and n["latency"]["status"] == "warn"
+
+
+def _mock_http(monkeypatch):
+    import httpx
+
+    def handler(request):
+        if request.url.scheme == "http":
+            return httpx.Response(301, headers={"location": "https://x.test/"})
+        return httpx.Response(200, headers={"server": "nginx", "strict-transport-security": "x"})
+
+    real_client = httpx.Client  # capture before patching to avoid recursion
+
+    def fake_client(**kw):
+        return real_client(transport=httpx.MockTransport(handler),
+                           timeout=kw.get("timeout"), follow_redirects=kw.get("follow_redirects", False))
+
+    monkeypatch.setattr(audit.httpx, "Client", fake_client)
+
+
+def test_fetch_offline_success(monkeypatch):
+    _mock_http(monkeypatch)
+    monkeypatch.setattr(audit, "_tls_info", lambda host, **k: {"valid": True, "days_to_expiry": 100, "error": None})
+    f = audit.fetch("https://x.test")
+    assert f["reachable"] and f["status"] == 200
+    assert f["redirect_http_to_https"] is True and f["tls"]["valid"]
+
+
+def test_fetch_offline_error(monkeypatch):
+    import httpx
+
+    class BoomClient:
+        def __init__(self, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def get(self, *a, **k): raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(audit.httpx, "Client", BoomClient)
+    f = audit.fetch("https://x.test")
+    assert f["reachable"] is False and f["error"]
+
+
+def test_run_audit_offline_full(monkeypatch):
+    _mock_http(monkeypatch)
+    monkeypatch.setattr(audit, "_tls_info", lambda host, **k: {"valid": True, "days_to_expiry": 100, "error": None})
+    report = audit.run_audit("https://x.test")
+    assert audit.validate_report(report) and report["score"] >= 80
+
+
+def test_tls_info_success(monkeypatch):
+    class SSock:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def getpeercert(self): return {"notAfter": "Jan 01 00:00:00 2099 GMT"}
+
+    class Ctx:
+        def wrap_socket(self, sock, server_hostname=None): return SSock()
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(audit.ssl, "create_default_context", lambda: Ctx())
+    monkeypatch.setattr(audit.socket, "create_connection", lambda *a, **k: Conn())
+    info = audit._tls_info("x.test")
+    assert info["valid"] and info["days_to_expiry"] > 0
+
+
+def test_tls_info_error(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(audit.socket, "create_connection", boom)
+    info = audit._tls_info("x.test")
+    assert info["valid"] is False and info["error"]
+
+
 @pytest.mark.live
 def test_live_audit_real_site():
     try:

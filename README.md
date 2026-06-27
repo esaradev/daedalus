@@ -15,7 +15,7 @@ An agent runs a real service (a website security audit) and keeps its own books:
 
 ```
 price -> Stripe payment link -> collect -> authorize the input spend
-      -> run the audit on Nemotron -> book double-entry -> reprice
+      -> run the audit, summarize on Nemotron -> book double-entry -> reprice
 ```
 
 Earning is autonomous. Every outbound spend must clear three independent
@@ -35,10 +35,12 @@ cut when they walk.
 ## The stack, and where each piece is load-bearing
 
 - **NVIDIA Nemotron** (`nvidia/nemotron-3-ultra-550b-a55b:free` on OpenRouter)
-  writes the audit report. Sensitive prompts (cards, customer data, the ledger)
-  route to a local Nemotron and never leave the box. Every structured call is
-  wrapped in validate-and-retry, because Nemotron sometimes stops before it emits
-  valid output.
+  writes the executive summary; the audit checks and score are computed locally
+  by `jobs/audit.py`. Sensitive prompts (cards, customer data, the ledger) route
+  to a local Nemotron, and a sensitive call is refused rather than sent to the
+  cloud when no local endpoint is set. Every structured call is wrapped in
+  validate-and-retry, because Nemotron sometimes stops before it emits valid
+  output.
 - **Stripe** is both sides of the rail: Payment Links + the
   `checkout.session.completed` webhook to earn, and the Link / Projects / MPP
   adapters to spend, each gated by the authorization layer.

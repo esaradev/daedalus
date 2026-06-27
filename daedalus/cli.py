@@ -79,10 +79,20 @@ def cmd_demo(url):
         print(f"  PROFIT BOOKED: {dollars(r['pnl']['profit_cents'])} ({r['pnl']['margin_pct']}% margin)")
 
     _rule()
-    print("ACT 2  ·  the gate blocks a bad spend")
-    bad = spend.authorize("data-broker", "scrape.shady.net", 300, approval_token=mint_approval("data-broker", 300))
-    print(f"  agent tries to pay data-broker at scrape.shady.net ({dollars(300)})")
-    print(f"  -> {'allowed' if bad.allowed else 'BLOCKED'} by {bad.protection}: {bad.reason}")
+    print("ACT 2  ·  the gate blocks three bad spends, one per protection")
+
+    def verdict(d):
+        return f"{'allowed' if d.allowed else 'BLOCKED'} by {d.protection}: {d.reason}"
+
+    b1 = spend.authorize("data-broker", "scrape.shady.net", 300, approval_token=mint_approval("data-broker", 300))
+    print(f"  security:   pay data-broker at scrape.shady.net {dollars(300)}")
+    print(f"    -> {verdict(b1)}")
+    b2 = spend.authorize("openrouter", "openrouter.ai", 20000, approval_token=mint_approval("openrouter", 20000))
+    print(f"  cred cap:   pay openrouter {dollars(20000)}, over its per-vendor cap")
+    print(f"    -> {verdict(b2)}")
+    b3 = spend.authorize("openrouter", "openrouter.ai", 100, approval_token=None)
+    print(f"  economics:  pay openrouter {dollars(100)} with no human approval tap")
+    print(f"    -> {verdict(b3)}")
 
     _rule()
     print("THE FIVE NUMBERS")

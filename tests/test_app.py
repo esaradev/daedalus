@@ -11,6 +11,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(config, "AUDIT_LOG_PATH", tmp_path / "d.log")
     monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "")
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "")
+    monkeypatch.setattr(config, "STRIPE_ENABLED", False)  # pure stub mode for the dev webhook path
     # seed a little history
     from daedalus.cli import build_stack
     s = build_stack(reset=True)
@@ -45,6 +47,19 @@ def test_events(client):
 def test_dashboard_page_renders(client):
     r = client.get("/")
     assert r.status_code == 200 and "daedalus" in r.text and "no localStorage" not in r.text.lower()
+
+
+def test_webhook_rejects_unsigned_when_key_set(client, monkeypatch):
+    from daedalus import config
+    monkeypatch.setattr(config, "STRIPE_ENABLED", True)
+    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "")
+    r = client.post("/webhook", json={"type": "checkout.session.completed", "data": {"object": {}}})
+    assert r.status_code == 400 and "WEBHOOK_SECRET" in r.json()["error"]
+
+
+def test_webhook_bad_body_returns_400(client):
+    r = client.post("/webhook", content=b"not json at all")
+    assert r.status_code == 400
 
 
 def test_webhook_books_revenue(client):

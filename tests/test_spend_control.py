@@ -95,6 +95,16 @@ def test_policy_mode_over_limit_blocks(ledger, tmp_path):
     assert "policy limit" in d.reason
 
 
+def test_unknown_mode_fails_closed(ledger, tmp_path):
+    g = SpendControl(ledger, egress=Egress(allowed={("openrouter.ai", 443)}),
+                     audit_log=AuditLog(tmp_path / "u.log"),
+                     caps={"openrouter": 10000}, mode="unattended")  # typo / unrecognized mode
+    ledger.earn(100000)
+    d = g.authorize("openrouter", "openrouter.ai", 500, approval_token="anything")
+    assert d.allowed is False and d.protection == "economics"
+    assert "unknown approval mode" in d.reason
+
+
 def test_nonpositive_amount_rejected(gate, ledger):
     d = gate.authorize("openrouter", "openrouter.ai", 0, approval_token=_tap("openrouter", 0))
     assert d.allowed is False

@@ -107,6 +107,13 @@ def test_http_request_failure_raises(monkeypatch):
         Nemotron().chat("x")
 
 
+def test_sensitive_without_local_fails_closed(monkeypatch):
+    monkeypatch.setattr(config, "LOCAL_NEMOTRON_URL", "")
+    n = Nemotron(transport=lambda m, model: "x")
+    with pytest.raises(NemotronError):
+        n.complete([{"role": "user", "content": "the customer card and ledger"}], sensitive=True)
+
+
 def test_offline_stub_when_no_key(monkeypatch):
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
     monkeypatch.setattr(config, "LOCAL_NEMOTRON_URL", "")

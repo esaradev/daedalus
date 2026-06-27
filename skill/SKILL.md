@@ -1,6 +1,6 @@
 ---
 name: daedalus
-description: Run a paid service as a business with a real P&L. Price work, earn via Stripe, spend through an authorization gate, do the work on Nemotron, book every dollar double-entry, and reprice. Use when a Hermes agent takes paid jobs and must stay profitable and within spend limits.
+description: Run a paid service as a business with a real P&L. Price work, earn via Stripe, spend through an authorization gate, run the audit and summarize on Nemotron, book every dollar double-entry, and reprice. Use when a Hermes agent takes paid jobs and must stay profitable and within spend limits.
 ---
 
 # daedalus: the agent's financial control plane
@@ -15,7 +15,7 @@ way to price, earn, spend, and record money. Drive it through its CLI
    revenue is booked.
 
 2. **Spend only through the gate.** To fulfill, you must buy inputs (the model
-   that writes the report, any paid data). Every spend passes three checks in
+   that writes the summary, any paid data). Every spend passes three checks in
    order: egress (is the host allowed), credential cap (is it within the
    vendor's limit), economics (attended approval or policy limit, and do we
    have the funds). You cannot bypass any of them. In attended mode a spend

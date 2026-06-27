@@ -19,10 +19,10 @@ Run `./run.sh demo`. Narrate as it prints:
 - "A customer wants a security audit. The agent prices it, cost to fulfill times
   its markup, and sends a Stripe payment link. Earning is autonomous."
 - "Paid. Revenue booked, double-entry."
-- "To do the work it has to buy the model that writes the report. That spend hits
+- "To do the work it has to buy the model that writes the summary. That spend hits
   the gate. In attended mode it needs a human tap. The agent cannot approve its
   own money. I approve once."
-- "Now it runs the real audit, on NVIDIA Nemotron." Point at the live findings:
+- "Now it runs the real audit, and NVIDIA Nemotron writes the summary." Point at the live findings:
   TLS, the missing https redirect, the absent security headers, a real score.
 - "Profit booked. It earned more than it spent."
 

@@ -50,9 +50,19 @@ async def webhook(request: Request):
             event = earn.verify_webhook(payload, sig)
         except Exception as e:
             return JSONResponse({"error": f"signature check failed: {e}"}, status_code=400)
-    else:
+    elif not config.STRIPE_ENABLED:
+        # pure stub/dev mode (no key at all): accept unsigned for local testing
         import json
-        event = json.loads(payload or b"{}")  # dev mode: no secret configured
+        try:
+            event = json.loads(payload or b"{}")
+            if not isinstance(event, dict) or "type" not in event:
+                raise ValueError("not a Stripe event object")
+        except Exception as e:
+            return JSONResponse({"error": f"bad webhook body: {e}"}, status_code=400)
+    else:
+        return JSONResponse(
+            {"error": "STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is missing; refusing unsigned webhook"},
+            status_code=400)
     return earn.handle_event(event)
 
 

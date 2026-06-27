@@ -84,6 +84,23 @@ def test_reprice_after_profitable_jobs(tmp_path):
     assert orch.five_numbers()["repriced"] == 1
 
 
+def test_blocked_paid_job_keeps_conversion(tmp_path):
+    orch, _, _ = build(tmp_path)
+    orch.run_job("https://example.com", approve=_tap)   # delivered (customer paid)
+    orch.run_job("https://example.com", approve=None)   # funded_unfulfilled (paid, self-blocked)
+    # both customers paid; a self-blocked spend must not count as a lost sale
+    assert orch.conversion() == 1.0
+
+
+def test_target_host_not_added_to_spend_allowlist(tmp_path):
+    orch, _, audit = build(tmp_path)
+    # auditing a shady host must NOT make it a permitted spend destination
+    orch.run_job("https://scrape.shady.net", approve=_tap)
+    d = orch.spend.authorize("data-broker", "scrape.shady.net", 300,
+                             approval_token=mint_approval("data-broker", 300))
+    assert d.allowed is False and d.protection == "egress"
+
+
 def test_book_balances_across_mixed_outcomes(tmp_path):
     orch, ledger, audit = build(tmp_path)
     orch.run_job("https://example.com", approve=_tap)   # delivered

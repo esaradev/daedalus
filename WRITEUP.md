@@ -26,9 +26,10 @@ paying, cut when they walk.
 
 ## The stack
 
-- NVIDIA Nemotron 3 Ultra (free on OpenRouter) writes the audit report; sensitive
-  data routes to a local Nemotron and never leaves the box; every structured call
-  is wrapped in validate-and-retry.
+- NVIDIA Nemotron 3 Ultra (free on OpenRouter) writes the executive summary; the
+  audit checks and score are computed locally; sensitive prompts route to a local
+  Nemotron or are refused rather than sent to the cloud; every structured call is
+  wrapped in validate-and-retry.
 - Stripe is both sides of the rail: Payment Links and the webhook to earn, the
   Link / Projects / MPP adapters to spend.
 - NemoClaw is the egress layer; daedalus emits the policy.yaml the sandbox runs.

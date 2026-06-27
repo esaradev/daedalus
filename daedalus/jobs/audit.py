@@ -160,7 +160,10 @@ def _tls_info(host, port=443, timeout=8.0):
 
 def fetch(url, timeout=8.0):
     url = _normalize(url)
-    host = urlparse(url).hostname or ""
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:  # e.g. malformed IPv6 literal
+        host = ""
     out = {"url": url, "reachable": False, "error": None, "status": None,
            "headers": {}, "redirect_http_to_https": None, "tls": None, "latency_ms": None}
     try:

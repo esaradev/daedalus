@@ -70,6 +70,8 @@ class StripeEarn:
         order_id = (session.get("metadata") or {}).get("order_id", "")
         if amount is None:
             return {"error": "session has no amount_total"}
+        if not ref:
+            return {"error": "session has no payment_intent/id; refusing to book without an idempotency ref"}
         if self.ledger.has_ref(ref):
             return {"already_booked": True, "ref": ref}
         self.ledger.earn(int(amount), ref=ref, memo=f"stripe checkout {order_id}")

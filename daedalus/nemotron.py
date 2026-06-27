@@ -47,6 +47,9 @@ class Nemotron:
     def complete(self, messages, sensitive=False, max_tokens=900):
         route, base, model, key = self._route(sensitive)
         self.last_route = route
+        if sensitive and route != "local":
+            raise NemotronError("sensitive inference requested but LOCAL_NEMOTRON_URL is not set; "
+                                "refusing to send sensitive data to the cloud")
         if self.transport is not None:
             return self.transport(messages, model)
         if not key and route == "cloud":

@@ -19,6 +19,7 @@ simulation, and the gate only ever *verifies* a token, never mints one itself.
 import hashlib
 import hmac
 import os
+import secrets
 from dataclasses import dataclass
 
 from . import config
@@ -102,6 +103,10 @@ class SpendControl:
                 return self._log_and_return(Decision(
                     False, "economics",
                     f"over the standing policy limit of {self.policy_limit}c", vendor, amount_cents))
+        else:
+            return self._log_and_return(Decision(
+                False, "economics",
+                f"unknown approval mode '{self.mode}'; refusing to spend", vendor, amount_cents))
 
         available = self.ledger.pnl()["cash_cents"]
         if amount_cents > available:
@@ -110,7 +115,7 @@ class SpendControl:
                 f"insufficient realized funds: have {available}c, need {amount_cents}c", vendor, amount_cents))
 
         # all three cleared -> execute and book
-        ref = self.spender(amount_cents, vendor) if self.spender else f"stub:{vendor}"
+        ref = self.spender(amount_cents, vendor) if self.spender else f"stub:{vendor}:{secrets.token_hex(3)}"
         txn_id = self.ledger.spend(amount_cents, vendor, ref=ref, memo=vendor)
         if cap is not None:
             self.caps[vendor] = cap - amount_cents

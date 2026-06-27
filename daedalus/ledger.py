@@ -56,6 +56,7 @@ class Ledger:
             );
             CREATE INDEX IF NOT EXISTS idx_entry_account ON entry(account);
             CREATE INDEX IF NOT EXISTS idx_entry_txn ON entry(txn_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_ref ON txn(ref) WHERE ref != '';
             """
         )
         self.conn.commit()
@@ -79,12 +80,16 @@ class Ledger:
         if not entries:
             raise Unbalanced(f"transaction '{kind}' has no entries")
         cur = self.conn.cursor()
-        cur.execute("INSERT INTO txn (ts, kind, ref, memo) VALUES (?,?,?,?)",
-                    (time.time(), kind, ref, memo))
-        txn_id = cur.lastrowid
-        cur.executemany("INSERT INTO entry (txn_id, account, amount) VALUES (?,?,?)",
-                        [(txn_id, a, amt) for a, amt in entries])
-        self.conn.commit()
+        try:
+            cur.execute("INSERT INTO txn (ts, kind, ref, memo) VALUES (?,?,?,?)",
+                        (time.time(), kind, ref, memo))
+            txn_id = cur.lastrowid
+            cur.executemany("INSERT INTO entry (txn_id, account, amount) VALUES (?,?,?)",
+                            [(txn_id, a, amt) for a, amt in entries])
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            self.conn.rollback()
+            raise ValueError(f"ref '{ref}' already booked; refusing to double-book")
         return txn_id
 
     def earn(self, amount_cents, ref="", memo=""):

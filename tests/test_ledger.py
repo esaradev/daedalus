@@ -91,6 +91,19 @@ def test_persists_to_disk(tmp_path):
     lg2.close()
 
 
+def test_duplicate_nonempty_ref_rejected(ledger):
+    ledger.earn(100, ref="pi_1")
+    with pytest.raises(ValueError):
+        ledger.earn(200, ref="pi_1")  # DB-enforced idempotency
+    assert ledger.pnl()["revenue_cents"] == 100
+
+
+def test_empty_ref_allows_multiple(ledger):
+    ledger.earn(100)  # ref ""
+    ledger.earn(200)  # ref "" — empty refs are exempt from the unique constraint
+    assert ledger.pnl()["revenue_cents"] == 300
+
+
 def test_dollars_formatting():
     assert dollars(1824) == "$18.24"
     assert dollars(-456) == "-$4.56"
