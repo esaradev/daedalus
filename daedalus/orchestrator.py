@@ -17,8 +17,10 @@ concern, declared in deploy/policy.yaml, not a spend authorization.
 
 import json
 
+from . import config
 from .jobs.audit import run_audit, report_markdown
 from .orders import OrderStore
+from .spend_control import mint_approval
 
 
 class Orchestrator:
@@ -177,14 +179,34 @@ class Orchestrator:
             return {"error": f"unknown order {order_id}"}
         if order.get("state") == "delivered":
             return {**order, "already": True}
-        if order.get("state") not in ("funded", "fulfilling", "funded_unfulfilled", "blocked"):
+        if order.get("state") not in ("funded", "fulfilling", "funded_unfulfilled",
+                                      "blocked", "awaiting_approval"):
             return {"error": f"order {order_id} is '{order.get('state')}', not funded"}
 
-        self.orders.update(order_id, state="fulfilling")
         price = int(order["price_cents"])
         spend_amount = min(int(order.get("est_cost_cents", self.cost_estimate)),
                            self.pricing.fulfillment_budget(price))
         vendor, vhost = "openrouter", "openrouter.ai"
+
+        # Approval resolution. The out-of-band gate: when no explicit approver is
+        # passed (the Hermes tool path always passes none), the spend proceeds ONLY
+        # if a human set the approval flag via `daedalus approve <order>`. No
+        # treasury tool can set that flag, so the agent cannot self-approve.
+        if approve is None:
+            if order.get("human_approved"):
+                approve = mint_approval
+            else:
+                self.orders.update(order_id, state="awaiting_approval")
+                self.orders.append_event(order_id, "approval",
+                                         "awaiting human approval before spend")
+                msg = (f"Spend of ${spend_amount/100:.2f} needs human approval. A human must run "
+                       f"this in a terminal, then call treasury_fulfill again:\n"
+                       f"    DAEDALUS_DIR={config.DATA_DIR} daedalus approve {order_id}\n"
+                       f"The agent cannot approve its own spend.")
+                return {**self.orders.read(order_id), "state": "awaiting_approval",
+                        "awaiting_approval": True, "message": msg}
+
+        self.orders.update(order_id, state="fulfilling")
         token = approve(vendor, spend_amount) if approve else None
         decision = self.spend.authorize(vendor, vhost, spend_amount, approval_token=token)
         decision_payload = {"allowed": decision.allowed, "protection": decision.protection,
@@ -260,7 +282,11 @@ class Orchestrator:
         elif evolve:
             timeline.append({"step": "reprice", "changed": False,
                              "reason": "skipped until order is delivered"})
-        return {**(self.orders.read(quoted["id"]) or fulfilled), "timeline": timeline}
+        merged = {**(self.orders.read(quoted["id"]) or fulfilled), "timeline": timeline}
+        if fulfilled.get("awaiting_approval"):  # keep the transient approval prompt
+            merged["awaiting_approval"] = True
+            merged["message"] = fulfilled.get("message", "")
+        return merged
 
     def run_job(self, target_url, customer="customer", approve=None, pay=True):
         result = self.run_paid_audit(target_url, customer=customer, approve=approve, pay=pay,

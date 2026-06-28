@@ -55,16 +55,28 @@ def test_full_loop_delivers_and_balances(tmp_path):
                     "blocked_actions": 0, "repriced": 0}
 
 
-def test_attended_without_tap_blocks_fulfillment(tmp_path):
+def test_without_approval_awaits_human(tmp_path):
     orch, ledger, audit = build(tmp_path)
-    r = orch.run_job("https://example.com", approve=None)  # no human tap
-    assert r["state"] == "funded_unfulfilled"
-    assert r["spend_decision"]["allowed"] is False
-    assert r["spend_decision"]["protection"] == "economics"
-    assert ledger.balance("COGS") == 0          # no spend booked
-    assert ledger.pnl()["revenue_cents"] == 500  # but revenue was collected
-    assert audit.count_blocked() == 1
-    assert orch.five_numbers()["blocked_actions"] == 1
+    r = orch.run_job("https://example.com", approve=None)  # tool path: no approver
+    assert r["state"] == "awaiting_approval" and r.get("awaiting_approval") is True
+    assert "daedalus approve" in r["message"]
+    assert ledger.balance("COGS") == 0           # no spend attempted
+    assert ledger.pnl()["revenue_cents"] == 500   # but revenue was collected
+
+
+def test_out_of_band_approval_is_the_only_way_to_spend(tmp_path):
+    """The security fix: the spend proceeds ONLY after orders.approve() (the
+    human CLI), never from a tool call. Proves the agent cannot self-approve."""
+    orch, ledger, _ = build(tmp_path)
+    q = orch.quote_order("https://example.com", customer="c")
+    orch.collect_order(q["id"], test_collect=True)
+    r1 = orch.fulfill_order(q["id"])  # agent/tool path, no approver
+    assert r1["state"] == "awaiting_approval"
+    assert ledger.balance("COGS") == 0
+    orch.orders.approve(q["id"])      # the human, out of band
+    r2 = orch.fulfill_order(q["id"])
+    assert r2["state"] == "delivered"
+    assert ledger.balance("COGS") == 120
 
 
 def test_lost_job_feeds_conversion(tmp_path):
@@ -87,8 +99,8 @@ def test_reprice_after_profitable_jobs(tmp_path):
 def test_blocked_paid_job_keeps_conversion(tmp_path):
     orch, _, _ = build(tmp_path)
     orch.run_job("https://example.com", approve=_tap)   # delivered (customer paid)
-    orch.run_job("https://example.com", approve=None)   # funded_unfulfilled (paid, self-blocked)
-    # both customers paid; a self-blocked spend must not count as a lost sale
+    orch.run_job("https://example.com", approve=None)   # awaiting_approval (paid, not yet approved)
+    # both customers paid; an unapproved-but-paid order must not count as a lost sale
     assert orch.conversion() == 1.0
 
 
@@ -104,11 +116,10 @@ def test_target_host_not_added_to_spend_allowlist(tmp_path):
 def test_book_balances_across_mixed_outcomes(tmp_path):
     orch, ledger, audit = build(tmp_path)
     orch.run_job("https://example.com", approve=_tap)   # delivered
-    orch.run_job("https://example.com", approve=None)   # funded, blocked spend
+    orch.run_job("https://example.com", approve=None)   # awaiting_approval (no spend)
     orch.run_job("https://example.com", pay=False)      # lost
     assert ledger.total_imbalance() == 0
     assert orch.delivered == 1 and orch.jobs == 3
-    assert audit.count_blocked() == 1
 
 
 def test_persistent_tool_lifecycle_and_memory_refs(tmp_path):

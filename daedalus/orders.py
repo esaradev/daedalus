@@ -72,6 +72,19 @@ class OrderStore:
         self._save(data)
         return deepcopy(data[order_id])
 
+    def approve(self, order_id):
+        """Record human approval for an order's spend. This is the out-of-band
+        gate: called ONLY by the `daedalus approve` CLI (a human action) and never
+        by a treasury tool, so the agent cannot self-approve."""
+        data = self._load()
+        if order_id not in data:
+            return None
+        data[order_id]["human_approved"] = True
+        data[order_id]["approved_at"] = time.time()
+        data[order_id]["updated"] = time.time()
+        self._save(data)
+        return deepcopy(data[order_id])
+
     def append_event(self, order_id, kind, message, **data_fields):
         data = self._load()
         if order_id not in data:

@@ -1,10 +1,11 @@
 """daedalus CLI. Wires the stack from config (real adapters when keys are set,
 labelled stubs otherwise) and runs the loop.
 
-  demo [url]   one paid job end to end + a blocked spend + the five numbers
-  job <url>    run one paid audit as a product flow (not the scripted demo)
-  audit <url>  run the real security audit, print the report
-  pnl          read the book
+  demo [url]      one paid job end to end + a blocked spend + the five numbers
+  job <url>       run one paid audit as a product flow (not the scripted demo)
+  approve <id>    human approval of an order's spend (the out-of-band gate)
+  audit <url>     run the real security audit, print the report
+  pnl             read the book
 """
 
 import sys
@@ -166,6 +167,18 @@ def cmd_pnl():
     _five(s["orch"])
 
 
+def cmd_approve(order_id):
+    """The out-of-band human approval gate. No treasury tool can do this, so the
+    agent cannot approve its own spend; only a human running this command can."""
+    s = build_stack()
+    o = s["orders"].approve(order_id)
+    if not o:
+        print(f"unknown order {order_id} (store: {config.DATA_DIR})")
+        return
+    print(f"approved {order_id}: spend of {dollars(o.get('est_cost_cents', 0))} for "
+          f"{o.get('target', '?')}. The agent may now call treasury_fulfill.")
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args else "pnl"
@@ -176,6 +189,11 @@ def main():
             print("usage: daedalus job <url>")
             return
         cmd_job(args[1])
+    elif cmd == "approve":
+        if len(args) < 2:
+            print("usage: daedalus approve <order_id>")
+            return
+        cmd_approve(args[1])
     elif cmd == "audit":
         if len(args) < 2:
             print("usage: daedalus audit <url>")

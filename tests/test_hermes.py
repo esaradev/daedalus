@@ -38,6 +38,16 @@ def test_hermes_tool_sequence_blocks_without_human_approval(tmp_path, monkeypatc
     assert quoted["state"] == "quoted"
     collected = json.loads(hermes.treasury_collect({"order": quoted["id"]}))
     assert collected["state"] == "funded"
+
+    # The agent (tool path) cannot approve its own spend: fulfill awaits a human.
     fulfilled = json.loads(hermes.treasury_fulfill({"order": quoted["id"]}))
-    assert fulfilled["state"] == "funded_unfulfilled"
-    assert fulfilled["spend_decision"]["protection"] == "economics"
+    assert fulfilled["state"] == "awaiting_approval"
+    assert "daedalus approve" in fulfilled["message"]
+
+    # No treasury tool exists to approve; only the out-of-band human store call.
+    assert "treasury_approve" not in hermes.SCHEMAS
+    from daedalus.cli import build_stack
+    build_stack()["orders"].approve(quoted["id"])  # the human, out of band
+
+    done = json.loads(hermes.treasury_fulfill({"order": quoted["id"]}))
+    assert done["state"] == "delivered"

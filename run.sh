@@ -19,7 +19,8 @@ case "${1:-help}" in
              --include="daedalus/ledger.py,daedalus/spend_control.py,daedalus/pricing.py,daedalus/jobs/audit.py" ;;
   demo)    "$PY" -m daedalus.cli demo "${@:2}" ;;
   job)     "$PY" -m daedalus.cli job "${@:2}" ;;
+  approve) "$PY" -m daedalus.cli approve "${@:2}" ;;
   audit)   "$PY" -m daedalus.cli audit "${@:2}" ;;
   pnl)     "$PY" -m daedalus.cli pnl ;;
-  *) echo "usage: ./run.sh {setup|test|cov|demo|job|audit|pnl}" ;;
+  *) echo "usage: ./run.sh {setup|test|cov|demo|job|approve|audit|pnl}" ;;
 esac

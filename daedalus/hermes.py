@@ -52,13 +52,10 @@ def treasury_fulfill(args, **kwargs):
     order = (args.get("order") or "").strip()
     if not order:
         return _json({"error": "need an order id"})
-    human_approved = bool(args.get("human_approved", False))
     try:
-        return _json(_stack()["orch"].fulfill_order(
-            order,
-            approve=mint_approval if human_approved else None,
-            source_tool="treasury_fulfill",
-        ))
+        # No approval argument: the spend proceeds only if a human approved this
+        # order out of band via `daedalus approve`. The agent cannot self-approve.
+        return _json(_stack()["orch"].fulfill_order(order, source_tool="treasury_fulfill"))
     except Exception as e:
         return _json({"error": str(e)})
 
@@ -67,13 +64,13 @@ def treasury_run_paid_audit(args, **kwargs):
     target = _url(args)
     if not target:
         return _json({"error": "need a target URL"})
-    human_approved = bool(args.get("human_approved", False))
     customer = (args.get("customer") or "customer").strip() or "customer"
     try:
+        # Quotes and collects, then stops at the spend for out-of-band human
+        # approval (`daedalus approve <order>`). The agent cannot self-approve.
         return _json(_stack()["orch"].run_paid_audit(
             target,
             customer=customer,
-            approve=mint_approval if human_approved else None,
             test_collect=bool(args.get("test_collect", True)),
             evolve=bool(args.get("evolve", True)),
             source_tool="treasury_run_paid_audit",
@@ -175,19 +172,17 @@ SCHEMAS = {
     },
     "treasury_fulfill": {
         "name": "treasury_fulfill",
-        "description": "Authorize spend, run the live audit, ask Nemotron for the summary, and book costs.",
+        "description": "Spend on inputs (gated), run the live audit, ask Nemotron for the summary, and book costs. The spend requires out-of-band human approval (a human runs `daedalus approve <order>`); if not yet approved this returns awaiting_approval with the exact command. You cannot approve it yourself.",
         "parameters": {"type": "object", "properties": {
             "order": {"type": "string"},
-            "human_approved": {"type": "boolean", "description": "True only after the human approval tap."},
         }, "required": ["order"]},
     },
     "treasury_run_paid_audit": {
         "name": "treasury_run_paid_audit",
-        "description": "Judge-friendly full paid audit flow through quote, collect, gated spend, Nemotron summary, ledger, and reprice.",
+        "description": "Full paid audit flow: quote, collect, then stop for out-of-band human approval of the spend. Returns awaiting_approval with the exact `daedalus approve <order>` command. After a human approves, call treasury_fulfill. You cannot approve the spend yourself.",
         "parameters": {"type": "object", "properties": {
             "target": {"type": "string"},
             "customer": {"type": "string"},
-            "human_approved": {"type": "boolean"},
             "test_collect": {"type": "boolean"},
             "evolve": {"type": "boolean"},
         }, "required": ["target"]},
