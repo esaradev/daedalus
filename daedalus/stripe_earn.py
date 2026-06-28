@@ -10,9 +10,12 @@ Without a key it runs a labelled stub so the loop is exercisable offline.
 
 import secrets
 
-import stripe
-
 from . import config
+
+try:
+    import stripe
+except ModuleNotFoundError:  # the plugin still loads; Stripe paths run as stubs
+    stripe = None
 
 
 class StripeEarn:
@@ -20,7 +23,7 @@ class StripeEarn:
         self.ledger = ledger
         self.api_key = api_key if api_key is not None else config.STRIPE_SECRET_KEY
         self.webhook_secret = webhook_secret if webhook_secret is not None else config.STRIPE_WEBHOOK_SECRET
-        self.enabled = bool(self.api_key)
+        self.enabled = bool(self.api_key) and stripe is not None
         if self.enabled:
             stripe.api_key = self.api_key
 

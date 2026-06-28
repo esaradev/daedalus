@@ -41,11 +41,17 @@ ORDER_STORE_PATH = Path(_env("DAEDALUS_ORDERS", str(DATA_DIR / "orders.json")))
 APPROVAL_MODE = _env("APPROVAL_MODE", "attended")
 POLICY_SPEND_LIMIT_CENTS = int(_env("POLICY_SPEND_LIMIT_CENTS", "1000"))
 
-# Stripe (TEST MODE ONLY for this project)
+# Stripe (TEST MODE ONLY for this project). The `stripe` lib is optional: the
+# plugin loads without it and runs Stripe paths as labelled stubs.
+try:
+    import stripe as _stripe_probe  # noqa: F401
+    STRIPE_LIB = True
+except ModuleNotFoundError:
+    STRIPE_LIB = False
 STRIPE_SECRET_KEY = _env("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = _env("STRIPE_WEBHOOK_SECRET")
-STRIPE_TEST_MODE = STRIPE_SECRET_KEY.startswith("sk_test_")
-STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)
+STRIPE_TEST_MODE = STRIPE_SECRET_KEY.startswith("sk_test_") and STRIPE_LIB
+STRIPE_ENABLED = bool(STRIPE_SECRET_KEY) and STRIPE_LIB
 
 # Nemotron via OpenRouter, with an optional local route for sensitive inference
 OPENROUTER_API_KEY = _env("OPENROUTER_API_KEY")
@@ -66,7 +72,9 @@ def status():
     return {
         "project": PROJECT_NAME,
         "approval_mode": APPROVAL_MODE,
-        "stripe": "test" if STRIPE_TEST_MODE else ("live-key!" if STRIPE_ENABLED else "stub"),
+        "stripe": ("test" if STRIPE_TEST_MODE else "live-key!" if STRIPE_ENABLED
+                   else "stub (pip install stripe)" if (STRIPE_SECRET_KEY and not STRIPE_LIB)
+                   else "stub"),
         "nemotron": "openrouter" if OPENROUTER_API_KEY else ("local" if LOCAL_NEMOTRON_URL else "stub"),
         "memory": DAEDALUS_MEMORY_ENABLED,
     }

@@ -16,9 +16,12 @@ Without a key every adapter returns a clearly-labelled stub ref.
 
 import secrets
 
-import stripe
-
 from . import config
+
+try:
+    import stripe
+except ModuleNotFoundError:  # the plugin still loads; Stripe paths run as stubs
+    stripe = None
 
 
 def _stub(prefix):
@@ -30,7 +33,7 @@ class LinkSpender:
 
     def __init__(self, api_key=None):
         self.api_key = api_key if api_key is not None else config.STRIPE_SECRET_KEY
-        self.enabled = bool(self.api_key)
+        self.enabled = bool(self.api_key) and stripe is not None
         if self.enabled:
             stripe.api_key = self.api_key
 

@@ -55,45 +55,71 @@ cut when they walk.
   installed, Daedalus writes Hermes tool calls, spend decisions, Nemotron route
   decisions, delivered reports, and repricing decisions into `~/fabric`.
 
-## Hermes-first quickstart
+## Install into Hermes (one command)
 
 ```bash
-./run.sh setup
-
-# Install Daedalus into the actual Hermes agent runtime, not only this repo venv.
-# `hermes --version` prints the project path if yours differs.
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ".[memory]"
-
-# Expose the Hermes plugin shim to the Hermes instance, then enable it.
-export HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-mkdir -p "$HERMES_HOME/plugins/daedalus"
-cp integrations/hermes_plugin/daedalus/plugin.yaml "$HERMES_HOME/plugins/daedalus/plugin.yaml"
-cp integrations/hermes_plugin/daedalus/__init__.py "$HERMES_HOME/plugins/daedalus/__init__.py"
-hermes plugins enable daedalus
-hermes tools list | rg treasury
+hermes plugins install esaradev/daedalus/daedalus --enable
 ```
 
-Ask Hermes to run the business flow with only the treasury tools:
+That clones the repo, installs the `daedalus/` plugin, and prompts you for two
+keys (both optional — skip either and that side runs as a labelled stub):
+
+- `OPENROUTER_API_KEY` — for NVIDIA Nemotron (Nemotron 3 Ultra is free). https://openrouter.ai/keys
+- `STRIPE_SECRET_KEY` — a Stripe TEST-MODE key, `sk_test_...`. https://dashboard.stripe.com/test/apikeys
+
+The plugin needs the `stripe` Python package in the Hermes runtime. `httpx` ships
+with Hermes; `stripe` may not, so install it once (skip only if you're staying in
+stub mode):
 
 ```bash
-set -a
-source .env
-set +a
-hermes chat -t treasury --provider openrouter -m openai/gpt-4o-mini \
-  -q 'Use the Daedalus treasury plugin. Call treasury_run_paid_audit for target https://developer.nvidia.com with customer "judge", human_approved true, test_collect true, evolve true. Return the order id, final state, score, Nemotron route, profit, and memory ids.'
+~/.hermes/hermes-agent/venv/bin/python -m pip install stripe
 ```
 
-For local judging without a Hermes shell:
+Verify, then drive it from a chat:
 
 ```bash
-./run.sh job https://developer.nvidia.com   # product flow, not the scripted demo
-./run.sh pnl                                # five numbers from the book
+hermes tools list | grep treasury     # 12 treasury_* tools
+hermes chat
 ```
 
-To enable Icarus markdown memory from a clean machine:
+> Run a paid security audit of https://developer.nvidia.com for a customer.
+> Quote it, collect payment in test mode, then fulfill it after I approve the spend.
+
+See `JUDGE_DEMO.md` for the full walkthrough.
+
+### Optional: local Nemotron (the privacy split)
+
+Confidential financial reasoning routes to a Nemotron on your own machine and
+never leaves the box. To enable, run any OpenAI-compatible Nemotron locally and
+point at it:
 
 ```bash
-./.venv/bin/pip install -e ".[memory]"
+ollama pull nemotron-mini
+# in ~/.hermes/.env:
+#   LOCAL_NEMOTRON_URL=http://localhost:11434/v1
+#   LOCAL_NEMOTRON_MODEL=nemotron-mini
+```
+
+Without it, sensitive calls fail closed (refused), never sent to the cloud.
+
+### Optional: Icarus markdown memory (provenance + recall)
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python -m pip install \
+  "icarus-memory @ git+https://github.com/esaradev/icarus-memory-infra.git@main"
+```
+
+Without it, the business runs fine; it just skips writing provenance to `~/fabric`.
+
+## Run standalone (no Hermes needed)
+
+For local judging without a Hermes shell, everything runs from the repo:
+
+```bash
+./run.sh setup                              # venv + deps + .env
+./run.sh demo                               # full loop end to end, labels stub vs real
+./run.sh job https://developer.nvidia.com   # one real product flow
+./run.sh pnl                                # the five numbers from the book
 ```
 
 ## Developer quickstart

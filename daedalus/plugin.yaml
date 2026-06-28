@@ -18,3 +18,12 @@ provides_tools:
 provides_hooks:
   - on_session_start
   - on_session_end
+requires_env:
+  - name: OPENROUTER_API_KEY
+    description: "OpenRouter key for NVIDIA Nemotron (Nemotron 3 Ultra is free). Without it, the audit summary runs as a labelled stub."
+    url: "https://openrouter.ai/keys"
+    secret: true
+  - name: STRIPE_SECRET_KEY
+    description: "Stripe TEST-MODE secret key (sk_test_...). Without it, Stripe earn/spend run as labelled stubs, no real charges. Use a TEST key only."
+    url: "https://dashboard.stripe.com/test/apikeys"
+    secret: true

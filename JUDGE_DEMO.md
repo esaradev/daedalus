@@ -3,6 +3,12 @@
 A Hermes-native plugin. Everything below is the agent calling its own treasury
 tools. Real Stripe test-mode money, a real audit, two Nemotron models.
 
+Install (prompts for your OpenRouter + Stripe TEST keys, both optional):
+```bash
+hermes plugins install esaradev/daedalus/daedalus --enable
+~/.hermes/hermes-agent/venv/bin/python -m pip install stripe   # one-time, for real charges
+```
+
 Setup:
 ```bash
 rm -rf /tmp/dae-hermes      # clean books
