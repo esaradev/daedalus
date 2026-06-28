@@ -60,6 +60,8 @@ class StripeEarn:
 
     def verify_webhook(self, payload, sig_header):
         """Verify the Stripe signature and return the event. Raises on tamper."""
+        if stripe is None:
+            raise RuntimeError("stripe library not installed; cannot verify webhook signatures")
         return stripe.Webhook.construct_event(payload, sig_header, self.webhook_secret)
 
     def handle_event(self, event):

@@ -350,7 +350,9 @@ class Orchestrator:
             text = self.nemotron.chat(prompt, sensitive=True)
             return text.strip(), getattr(self.nemotron, "last_route", None)
         except Exception as e:
-            return f"[local note skipped: {e}]", getattr(self.nemotron, "last_route", None)
+            # fail-closed: nothing was sent anywhere. Do NOT label it "cloud"
+            # (last_route is the attempted route); record it as refused.
+            return f"[local note skipped: {e}]", "refused"
 
     def five_numbers(self):
         p = self.ledger.pnl()
